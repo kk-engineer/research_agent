@@ -48,6 +48,11 @@ file = "research_agent.log"
 #   debug   - LLM prompts, search results, details
 #   trace   - full raw prompts/responses, everything
 verbosity = "debug"
+# Granular logging controls (override verbosity defaults)
+# show_llm_prompts = true      # Show full LLM prompts/responses
+# show_search_details = true   # Show search queries and results
+# show_agent_state = true      # Show agent state transitions & thoughts
+# show_intermediate_steps = true # Show all intermediate processing steps
 
 [agent]
 session_id = "default"

@@ -6,6 +6,8 @@ from typing import Any
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from rich.syntax import Syntax
+from rich.console import Group
 from rich import box
 
 from src.config import settings
@@ -21,10 +23,27 @@ def log_search_start(
 ) -> float:
     start = time.monotonic()
 
-    if settings.verbosity_level >= 1:
+    show_full = settings.show_search_details
+
+    if show_full:
+        console.print(
+            make_panel(
+                Group(
+                    make_key_value_table([
+                        ("Provider", provider),
+                        ("Query", query),
+                        ("Max results", str(max_results)),
+                        ("Depth", depth),
+                    ]),
+                ),
+                title="[bold]🔍 Web Search[/bold]",
+                border_style=Theme.PANEL_SEARCH,
+            )
+        )
+    else:
         console.print(
             f"  🔍 [bold {Theme.SEARCH}]{provider}[/bold {Theme.SEARCH}] "
-            f"\"{query[:200]}\"",
+            f"\"{query[:120]}\"",
         )
 
     return start
@@ -40,50 +59,59 @@ def log_search_end(
     depth: str = "advanced",
 ) -> None:
     result_count = len(results)
+    elapsed = time.monotonic() - start
 
     record = SearchRecord(
         provider=provider,
-        query=query[:120],
+        query=query[:200],
         depth=depth,
         max_results=max_results,
-        latency=time.monotonic() - start,
+        latency=elapsed,
         result_count=result_count,
         success=success,
     )
     metrics.record_search(record)
 
-    if settings.verbosity_level >= 2:
+    show_full = settings.show_search_details
+
+    if show_full:
+        content_parts = [
+            make_key_value_table([
+                ("Provider", provider),
+                ("Results", str(result_count)),
+                ("Time", f"{elapsed:.2f}s"),
+            ]),
+        ]
+
         if results:
-            result_table = Table(box=box.SIMPLE, show_edge=False)
-            result_table.add_column("#", style="dim", width=3)
-            result_table.add_column("Title", style="bold", width=40)
-            result_table.add_column("URL", style="dim", width=60)
-
-            for i, r in enumerate(results[:8], 1):
-                result_table.add_row(
-                    str(i),
-                    (r.title or "")[:60],
-                    (r.url or "")[:60],
+            result_rows = []
+            for i, r in enumerate(results, 1):
+                title = r.title or "No title"
+                url = r.url or "No URL"
+                snippet = (r.snippet or "")[:200]
+                result_rows.append(
+                    Panel(
+                        Text(f"{title}\n{url}\n{snippet}", style=Theme.INFO),
+                        title=f"[bold]#{i}[/bold]",
+                        border_style="dim",
+                        box=box.ROUNDED,
+                        padding=(0, 1),
+                    )
                 )
-            if result_count > 8:
-                result_table.add_row("…", f"+{result_count - 8} more", "")
-
-            console.print(
-                make_panel(
-                    result_table,
-                    title=f"[bold {Theme.PANEL_SEARCH}]🔍 Search Results — {provider} ({result_count} results)[/bold {Theme.PANEL_SEARCH}]",
-                    border_style=Theme.PANEL_SEARCH,
-                )
-            )
+            if result_rows:
+                content_parts.append(Text(""))
+                content_parts.append(Group(*result_rows))
         else:
-            console.print(
-                make_panel(
-                    Text("No results returned", style=f"bold {Theme.WARNING}"),
-                    title=f"[bold {Theme.PANEL_WARN}]🔍 Search: {provider} (empty)[/bold {Theme.PANEL_WARN}]",
-                    border_style=Theme.PANEL_WARN,
-                )
-            )
-    elif settings.verbosity_level >= 1:
+            content_parts.append(Text("No results returned", style=f"bold {Theme.WARNING}"))
+
         console.print(
-            f"  [green]✔[/green] {provider} → {result_count} results"
+            make_panel(
+                Group(*content_parts),
+                title=f"[bold {Theme.PANEL_SEARCH}]🔍 Search Results — {provider} ({result_count} results)[/bold {Theme.PANEL_SEARCH}]",
+                border_style=Theme.PANEL_SEARCH,
+            )
+        )
+    else:
+        console.print(
+            f"  [green]✔[/green] {provider} → {result_count} results  ({elapsed:.2f}s)"
         )

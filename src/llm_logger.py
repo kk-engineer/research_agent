@@ -26,12 +26,13 @@ def log_llm_call_start(
     max_tokens: Optional[int] = None,
 ) -> float:
     start = time.monotonic()
-    vl = settings.verbosity_level
     purpose_tag = _short_purpose(purpose)
 
     tracer.event(f"LLM call: {purpose_tag} ({model})", "llm")
 
-    if vl >= 2:
+    show_full = settings.show_llm_prompts
+
+    if show_full:
         meta = make_key_value_table(
             [
                 ("Model", model),
@@ -42,31 +43,36 @@ def log_llm_call_start(
             ],
         )
 
-        content = Group(
-            meta,
-            Text(""),
-            Panel(
-                syntax_block(system_prompt),
-                title="[bold]System Prompt[/bold]",
-                border_style="dim",
-                box=box.ROUNDED,
-            ),
-            Panel(
-                syntax_block(user_prompt),
-                title="[bold]User Prompt[/bold]",
-                border_style="dim",
-                box=box.ROUNDED,
-            ),
-        )
+        content_parts = [meta, Text("")]
+
+        if system_prompt:
+            content_parts.append(
+                Panel(
+                    Syntax(system_prompt, "markdown", word_wrap=True, theme="monokai", line_numbers=False),
+                    title="[bold]System Prompt[/bold]",
+                    border_style="dim",
+                    box=box.ROUNDED,
+                )
+            )
+
+        if user_prompt:
+            content_parts.append(
+                Panel(
+                    Syntax(user_prompt, "markdown", word_wrap=True, theme="monokai", line_numbers=False),
+                    title="[bold]User Prompt[/bold]",
+                    border_style="dim",
+                    box=box.ROUNDED,
+                )
+            )
 
         console.print(
             make_panel(
-                content,
+                Group(*content_parts),
                 title=f"[bold {Theme.PANEL_LLM}]🤖 LLM Call: {purpose_tag}[/bold {Theme.PANEL_LLM}]",
                 border_style=Theme.PANEL_LLM,
             )
         )
-    elif vl >= 1:
+    else:
         console.print(
             f"  🤖 [bold {Theme.LLM_CALL}]LLM[/bold {Theme.LLM_CALL}] "
             f"[{purpose_tag}]  {model}  temp={temperature}",
@@ -90,7 +96,6 @@ def log_llm_call_end(
     retry_count: int = 0,
 ) -> None:
     elapsed = time.monotonic() - start
-    vl = settings.verbosity_level
     purpose_tag = _short_purpose(purpose)
 
     record = LLMCallRecord(
@@ -110,35 +115,64 @@ def log_llm_call_end(
 
     tracer.complete_event(f"LLM response: {purpose_tag}", "llm", elapsed)
 
+    token_info = (
+        f"[bold]Tokens:[/bold] {total_tokens:,}  "
+        f"(in: {prompt_tokens:,}, out: {completion_tokens:,})"
+    ) if total_tokens else ""
+
+    time_info = f"[bold]Time:[/bold] {elapsed:.2f}s"
+
     if not success:
         console.print(
             make_panel(
                 Text(response_content or "LLM call failed", style=f"bold {Theme.ERROR}"),
-                title=f"[bold {Theme.ERROR}]✘ LLM Error: {purpose_tag}[/bold {Theme.ERROR}] ({elapsed:.2f}s)",
+                title=(
+                    f"[bold {Theme.ERROR}]✘ LLM Error: {purpose_tag}[/bold {Theme.ERROR}]  "
+                    f"{time_info}"
+                ),
                 border_style=Theme.PANEL_ERROR,
             )
         )
         return
 
-    if vl >= 2:
-        token_info = f"({total_tokens} tokens, In= {prompt_tokens} tokens, Out= {completion_tokens} tokens)" if total_tokens else ""
+    show_full = settings.show_llm_prompts
+
+    if show_full:
+        content_parts = []
+
+        if token_info:
+            content_parts.append(Text(token_info, style=Theme.INFO))
+        if time_info:
+            content_parts.append(Text(time_info, style=Theme.INFO))
+        if retry_count:
+            content_parts.append(Text(f"Retries: {retry_count}", style=Theme.WARNING))
+
         if response_content:
-            content = Group(
-                syntax_block(response_content),
+            content_parts.append(Text(""))
+            content_parts.append(
+                Panel(
+                    Syntax(response_content, "markdown", word_wrap=True, theme="monokai", line_numbers=False),
+                    title="[bold]Response[/bold]",
+                    border_style="green",
+                    box=box.ROUNDED,
+                )
             )
         else:
-            content = Text("(empty)", style="dim")
+            content_parts.append(Text("(empty)", style="dim"))
+
         console.print(
             make_panel(
-                content,
-                title=f"[bold {Theme.PANEL_LLM}]LLM Response: {purpose_tag}[/bold {Theme.PANEL_LLM}]  {token_info}",
+                Group(*content_parts),
+                title=(
+                    f"[bold {Theme.PANEL_LLM}]LLM Response: {purpose_tag}[/bold {Theme.PANEL_LLM}]"
+                ),
                 border_style=Theme.PANEL_LLM,
             )
         )
-    elif vl >= 1:
-        token_str = f"  ({total_tokens} tokens)" if total_tokens else ""
+    else:
         console.print(
-            f"  [green]✔[/green] LLM [{purpose_tag}]{token_str}  ({elapsed:.2f}s)"
+            f"  [green]✔[/green] LLM [{purpose_tag}]  {time_info}  "
+            f"{token_info}"
         )
 
 

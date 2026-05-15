@@ -98,6 +98,12 @@ source .venv/bin/activate
 uv sync
 ```
 
+OR 
+
+```bash
+uv pip install -e .
+```
+
 ### 4. Configure environment
 
 ```bash
@@ -221,26 +227,47 @@ When running a query, a live panel shows each research phase with elapsed time:
 git clone https://github.com/ggerganov/llama.cpp
 ```
 
+### 1.1 Compile (for Mac)
 ```bash
-cd llama.cpp && make
+brew install cmake
+cd llama.cpp
+cmake -B build -DGGML_METAL=ON
+cmake --build build --config Release
 ```
 
-Download a model (e.g. Qwen 2.5 7B Instruct):
+Download a model (e.g. Mistral Nemo 12B):
 
 ```bash
-wget -O models/qwen2.5-7b-instruct.Q4_K_M.gguf \
-  https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct.Q4_K_M.gguf
+brew install aria2
 ```
-
-### 2. Start the server
 
 ```bash
-./llama-server -m models/qwen2.5-7b-instruct.Q4_K_M.gguf \
-  --port 8080 \
-  --n-gpu-layers -1    # offload all layers to GPU if available
+aria2c -x 16 -s 16 "https://huggingface.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF/resolve/main/Mistral-Nemo-Instruct-2407-Q4_K_M.gguf?download=true" -d models -o mistral-nemo-12b.gguf
 ```
 
-### 3. Configure `.env`
+### 2. Start the llm
+
+```bash
+./build/bin/llama-server \
+  -m models/mistral-nemo-12b.gguf \
+  --n-gpu-layers -1 \
+  --port 8000 \
+  -np 4 \
+  -c 8192
+```
+### 3. Start the embedding model (optional)
+
+```bash
+./build/bin/llama-server \
+  -m models/nomic-embed-text-v1.5.Q8_0.gguf \
+  --embedding \
+  -ngl 999 \
+  --port 8001 \
+  -np 8 \
+  -c 8192
+```
+
+### 4. Configure `.env`
 
 ```env
 LLM_PROVIDER=llamacpp
@@ -248,7 +275,7 @@ LLAMA_BASE_URL=http://localhost:8080/v1
 LLAMA_MODEL=local-model
 ```
 
-### 4. Run the agent
+### 5. Run the agent
 
 ```bash
 python src/main.py "What is the heat capacity of water?"

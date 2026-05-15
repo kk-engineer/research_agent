@@ -34,7 +34,7 @@ def begin_step(name: str) -> None:
     _step_name = name
     logging.getLogger(__name__).info("▸ %s", name)
     tracer.event(name, "general")
-    if settings.verbosity_level >= 1:
+    if settings.show_intermediate_steps or settings.verbosity_level >= 1:
         console.print(f"  [bold {Theme.PRIMARY}]▸[/bold {Theme.PRIMARY}] {name}")
 
 
@@ -45,23 +45,25 @@ def end_step(status: str = "done") -> float:
     elapsed = time.monotonic() - _step_start
     log = logging.getLogger(__name__)
 
+    should_print = settings.show_intermediate_steps or settings.verbosity_level >= 1
+
     if status == "done":
         log.info("  ✔ %s  [%s]  (%.2fs)", "done", _step_name, elapsed)
-        if settings.verbosity_level >= 1:
+        if should_print:
             console.print(
                 f"    [green]✔[/green] {_step_name}  "
                 f"({elapsed:.2f}s)"
             )
     elif status == "timeout":
         log.warning("  ⏱ %s  [%s]  (%.2fs)", "timeout", _step_name, elapsed)
-        if settings.verbosity_level >= 1:
+        if should_print:
             console.print(
                 f"    [yellow]⏱[/yellow] {_step_name} timed out  "
                 f"({elapsed:.2f}s)"
             )
     else:
         log.warning("  ✘ %s  [%s]  (%.2fs)", status, _step_name, elapsed)
-        if settings.verbosity_level >= 1:
+        if should_print:
             console.print(
                 f"    [red]✘[/red] {_step_name}: {status}  "
                 f"({elapsed:.2f}s)"
@@ -127,6 +129,38 @@ class AgentLogger:
     def report(claims: int, sources: int, duration: float) -> str:
         return f"📝 Report: {claims} claims, {sources} sources, {duration:.1f}s"
 
+    @staticmethod
+    def agent_state(state: str, detail: str = "") -> str:
+        return f"🔄 Agent State: {state}" + (f" — {detail}" if detail else "")
+
+
+def log_agent_state(state: str, detail: str = "") -> None:
+    if not settings.show_agent_state:
+        return
+    msg = AgentLogger.agent_state(state, detail)
+    logging.getLogger(__name__).info(msg)
+    console.print(
+        Panel(
+            Text(f"{state}", style=f"bold {Theme.HIGHLIGHT}"),
+            title=f"[bold {Theme.PANEL_INFO}]🔄 Agent State[/bold {Theme.PANEL_INFO}]",
+            border_style=Theme.PANEL_INFO,
+            padding=(0, 1),
+        )
+    )
+
+
+def log_intermediate_step(label: str, content: str = "") -> None:
+    if not settings.show_intermediate_steps:
+        return
+    logging.getLogger(__name__).info("Step: %s", label)
+    console.print(
+        make_panel(
+            syntax_block(content) if content else Text(label, style=Theme.INFO),
+            title=f"[bold {Theme.PANEL_INFO}]🔬 Intermediate: {label}[/bold {Theme.PANEL_INFO}]",
+            border_style=Theme.PANEL_INFO,
+        )
+    )
+
 
 def log_json_event(event_type: str, data: dict[str, Any]) -> None:
     record = {
@@ -137,7 +171,7 @@ def log_json_event(event_type: str, data: dict[str, Any]) -> None:
     }
     _JSON_LOG.append(record)
     logging.getLogger(__name__).debug(
-        "JSON[%s]: %s", event_type, json.dumps(data, default=str)[:500]
+        "JSON[%s]: %s", event_type, json.dumps(data, default=str)
     )
 
 
@@ -202,11 +236,11 @@ def log_error(
         Text(f"Error: {error}", style=Theme.ERROR),
     ]
     if request_payload:
-        payload_str = json.dumps(request_payload, indent=2, default=str)[:1000]
+        payload_str = json.dumps(request_payload, indent=2, default=str)
         content_parts.append(Text(""))
         content_parts.append(syntax_block(payload_str, "json"))
     content_parts.append(Text(""))
-    content_parts.append(Text(tb[:1500], style="dim"))
+    content_parts.append(Text(tb, style="dim"))
 
     fatal_error_panel = make_panel(
         Group(*content_parts),
@@ -222,6 +256,43 @@ def display_final_summary() -> None:
 
     console.print()
     console.print(metrics.render_summary_panel())
+
+    if settings.show_intermediate_steps or settings.verbosity_level >= 1:
+        llm_table = Table.grid(padding=(0, 2))
+        llm_table.add_column(width=4)
+        llm_table.add_column(width=22)
+        llm_table.add_column(width=12)
+        llm_table.add_column(width=12)
+        llm_table.add_column(width=10)
+        llm_table.add_column(width=10)
+
+        llm_table.add_row(
+            Text("#", style="bold"),
+            Text("Purpose", style="bold"),
+            Text("Time", style="bold"),
+            Text("Tokens", style="bold"),
+            Text("Cost", style="bold"),
+            Text("Status", style="bold"),
+        )
+        for i, c in enumerate(metrics.llm_calls, 1):
+            cost_str = f"${c.estimated_cost:.6f}" if c.estimated_cost else "$0"
+            status = "✔" if c.success else "✘"
+            llm_table.add_row(
+                str(i),
+                c.purpose[:22],
+                f"{c.latency:.2f}s",
+                f"{c.total_tokens:,}",
+                cost_str,
+                status,
+            )
+        if metrics.llm_calls:
+            console.print(
+                Panel(
+                    llm_table,
+                    title="[bold]LLM Call Details[/bold]",
+                    border_style="cyan",
+                )
+            )
 
     console.print(
         Panel(

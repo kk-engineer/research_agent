@@ -12,7 +12,7 @@ from src.config import settings
 from src.contradiction_detector import ContradictionDetector
 from src.debug_utils import print_step, print_claims_summary, print_debug_info
 from src.llm_client import get_llm_client, LLMClient
-from src.logger import AgentLogger, begin_step, end_step, log_json_event
+from src.logger import AgentLogger, begin_step, end_step, log_json_event, log_agent_state, log_intermediate_step
 from src.loop_guard import LoopGuard
 from src.metrics import metrics
 from src.models import ClaimChunk, ContradictionRecord, CoverageGap, Report, SubQuestion, SubQuestionStatus
@@ -68,10 +68,12 @@ class ResearchOrchestrator:
 
         total_start = time.monotonic()
 
+        log_agent_state("QUERY_RECEIVED", f"User query: {query}")
         log_json_event("research_start", {"query": query, "session_id": settings.session_id})
 
         try:
             # ── 1. Query Analysis ─────────────────────────────────
+            log_agent_state("ANALYZING", f"Analyzing query: {query}")
             begin_step("Query analysis")
             progress.set_tool("LLM / QueryAnalyzer")
             progress.set_action("Analyzing query for intent, scope, ambiguities…")
@@ -84,7 +86,7 @@ class ResearchOrchestrator:
                 AgentLogger.llm_call("QueryAnalyzer.analyze", getattr(self._llm, '_model', '')),
                 "llm",
             )
-            progress.phase("Analyzing query")
+            progress.phase("Query analysis")
 
             tracer.event("Query analysis start", "analyze")
             async with timed_async("query_analysis"):
@@ -105,15 +107,20 @@ class ResearchOrchestrator:
                 )
                 progress.log("⚠ Query analysis failed — using defaults", "warn")
             progress.add_tokens(len(query) // 4)
-            progress.mark_done("Analyzing query")
+            progress.mark_done("Query analysis")
 
             had_ambiguities = analysis.has_ambiguities
             progress.log(
-                f"   Scope: {analysis.scope}  |  Intent: {analysis.primary_intent[:60]}",
+                f"   Scope: {analysis.scope}  |  Intent: {analysis.primary_intent}",
                 "data",
             )
             if had_ambiguities:
                 progress.log(f"   Ambiguities: {len(analysis.ambiguities)} dimension(s)", "data")
+            log_intermediate_step("Query Analysis Result",
+                f"Intent: {analysis.primary_intent}\n"
+                f"Scope: {analysis.scope}\n"
+                f"Ambiguities: {len(analysis.ambiguities)}\n"
+                f"Constraints: {analysis.constraints}" if hasattr(analysis, 'constraints') else "")
             print_step(
                 "Query Analysis",
                 f"Scope: {analysis.scope}  Intent: {analysis.primary_intent}  "
@@ -124,6 +131,7 @@ class ResearchOrchestrator:
             # ── 2. Clarification (if needed) ─────────────────────
             resolved_query = query
             if had_ambiguities and not skip_clarification:
+                log_agent_state("CLARIFYING", f"Query has {len(analysis.ambiguities)} ambiguous dimensions")
                 begin_step("Clarification")
                 progress.set_tool("LLM / ClarificationEngine")
                 progress.set_action("Generating clarifying question…")
@@ -148,6 +156,7 @@ class ResearchOrchestrator:
                 end_step()
 
             # ── 3. Sub-question planning ─────────────────────────
+            log_agent_state("PLANNING", "Decomposing query into sub-questions")
             begin_step("Sub-question planning")
             progress.set_tool("LLM / SubQueryPlanner")
             progress.set_action("Decomposing query into research sub-questions…")
@@ -172,8 +181,10 @@ class ResearchOrchestrator:
                 f"   Planned {len(sub_questions)} sub-questions for parallel research", "data"
             )
             for i, sq in enumerate(sub_questions, 1):
-                progress.log(f"   [{i}] {sq.text[:70]}", "data")
+                progress.log(f"   [{i}] {sq.text}", "data")
             sq_texts = "\n".join(f"{i}. {sq.text}" for i, sq in enumerate(sub_questions, 1))
+            log_intermediate_step("Sub-Questions Planned",
+                f"Total: {len(sub_questions)}\n\n{sq_texts}")
             print_step(
                 "Sub-Question Planning",
                 f"{len(sub_questions)} sub-question(s):\n{sq_texts}",
@@ -185,9 +196,10 @@ class ResearchOrchestrator:
             end_step()
 
             # ── 4. Sub-question research (parallel) ──────────────
+            log_agent_state("RESEARCHING", f"Researching {len(sub_questions)} sub-questions in parallel")
             async def _run_sub_q(sq: SubQuestion) -> list[ClaimChunk]:
-                label = f"Researching: {sq.text[:55]}"
-                progress.phase(label)
+                sq_label = f"Sub-Q: {sq.text}"
+                progress.phase(sq_label)
                 tracer.push_level()
                 try:
                     async with timed_async(f"sub_question_{sq.id}"):
@@ -206,8 +218,8 @@ class ResearchOrchestrator:
                     )
                     if not settings.disable_claims:
                         self._claim_store.add_claims(claims)
-                    detail = f"{len(claims)} items"
-                    progress.mark_done(label, detail)
+                    detail = f"{len(claims)} clm"
+                    progress.mark_done(sq_label, detail)
                     if claims:
                         label_text = "snippet(s)" if settings.disable_claims else "claim(s)"
                         progress.log(
@@ -220,7 +232,7 @@ class ResearchOrchestrator:
                     return claims
                 except Exception as e:
                     sq.status = SubQuestionStatus.UNANSWERABLE
-                    progress.mark_failed(label, str(e)[:40])
+                    progress.mark_failed(sq_label, str(e))
                     progress.log(f"⚠ Sub-question failed", "warn")
                     logger.warning("Sub-question failed: %s", e)
                     tracer.pop_level()
@@ -250,6 +262,7 @@ class ResearchOrchestrator:
 
             # ── 5. Deduplication (skipped when claims disabled) ──
             if not settings.disable_claims:
+                log_agent_state("DEDUPLICATING", f"Deduplicating {len(all_claims)} claims")
                 begin_step("Deduplication")
                 progress.set_tool("ClaimStore")
                 progress.set_action("Deduplicating extracted claims…")
@@ -276,6 +289,7 @@ class ResearchOrchestrator:
             # ── 6. Contradiction detection (skipped when claims disabled) ──
             contradictions: list[ContradictionRecord] = []
             if not settings.disable_claims:
+                log_agent_state("DETECTING_CONTRADICTIONS", f"Scanning {len(all_claims)} claims")
                 begin_step("Contradiction detection")
                 progress.set_tool("LLM / ContradictionDetector")
                 progress.set_action(f"Scanning {len(all_claims)} claims for contradictions…")
@@ -315,6 +329,7 @@ class ResearchOrchestrator:
                 end_step()
 
             # ── 7. Report synthesis ──────────────────────────────
+            log_agent_state("SYNTHESIZING", f"Generating report from {len(all_claims)} claims")
             begin_step("Report synthesis")
             progress.set_tool("LLM / SynthesisEngine")
             progress.set_action("Generating structured research report…")
@@ -418,6 +433,7 @@ class ResearchOrchestrator:
                 )
             )
 
+            log_agent_state("COMPLETE", f"Report generated in {total_dur:.1f}s")
             log_json_event("research_complete", {
                 "total_claims": len(all_claims),
                 "total_sources": len(report.references),
@@ -440,12 +456,13 @@ class ResearchOrchestrator:
     async def _process_sub_question(
         self, sub_question: SubQuestion, progress: ResearchProgress
     ) -> list[ClaimChunk]:
-        query_preview = sub_question.text[:60]
+        query_preview = sub_question.text
 
         # ── Search ─────────────────────────────────────────────
-        begin_step(f"Search: {query_preview[:40]}")
+        log_agent_state("SEARCHING", f"Sub-Q: {query_preview[:80]}")
+        begin_step(f"Search: {query_preview[:60]}")
         progress.set_tool(f"Search / {settings.search_provider}")
-        progress.set_action(f"Searching the web for '{query_preview}'…")
+        progress.set_action(f"Searching the web for '{query_preview[:80]}'…")
         progress.log(
             AgentLogger.action(
                 settings.search_provider, f"query='{query_preview}'"

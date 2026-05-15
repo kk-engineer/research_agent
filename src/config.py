@@ -188,6 +188,10 @@ class Settings:
             _toml, "logging", "verbosity", default="normal"
         )
     )
+    show_llm_prompts_raw: Optional[bool] = field(default=None)
+    show_search_details_raw: Optional[bool] = field(default=None)
+    show_agent_state_raw: Optional[bool] = field(default=None)
+    show_intermediate_steps_raw: Optional[bool] = field(default=None)
 
     # ── Derived / compat ───────────────────────────────────────
     verbose_debug: bool = False  # set by main.py based on verbosity
@@ -197,6 +201,35 @@ class Settings:
         vs = self._verbosity_str.lower()
         self._vlevel = _VERBOSITY_MAP.get(vs, 1)
         self.verbose_debug = self._vlevel >= 2
+        # Load granular logging controls from TOML
+        self.show_llm_prompts_raw = _toml_val(_toml, "logging", "show_llm_prompts", default=None)
+        self.show_search_details_raw = _toml_val(_toml, "logging", "show_search_details", default=None)
+        self.show_agent_state_raw = _toml_val(_toml, "logging", "show_agent_state", default=None)
+        self.show_intermediate_steps_raw = _toml_val(_toml, "logging", "show_intermediate_steps", default=None)
+
+    @property
+    def show_llm_prompts(self) -> bool:
+        if self.show_llm_prompts_raw is not None:
+            return self.show_llm_prompts_raw
+        return self._vlevel >= 2
+
+    @property
+    def show_search_details(self) -> bool:
+        if self.show_search_details_raw is not None:
+            return self.show_search_details_raw
+        return self._vlevel >= 2
+
+    @property
+    def show_agent_state(self) -> bool:
+        if self.show_agent_state_raw is not None:
+            return self.show_agent_state_raw
+        return self._vlevel >= 1
+
+    @property
+    def show_intermediate_steps(self) -> bool:
+        if self.show_intermediate_steps_raw is not None:
+            return self.show_intermediate_steps_raw
+        return self._vlevel >= 1
 
     @property
     def verbosity_level(self) -> int:
