@@ -34,8 +34,8 @@ page_fetch_timeout = 10
 max_chunks_per_page = 2
 max_contradiction_pairs = 5
 max_tool_calls = 5
-min_sub_questions = 2
-max_sub_questions = 3
+min_sub_questions = 1
+max_sub_questions = 2
 
 [logging]
 # level: DEBUG | INFO | WARNING | ERROR

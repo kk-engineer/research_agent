@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 
 from rich.console import Console
+from rich.prompt import Prompt
 
 from src.claim_store import ClaimStore, InMemoryClaimStore
 from src.config import settings
@@ -27,7 +28,6 @@ from src.text_processor import extract_domain
 from src.tracing import tracer
 from src.utils import with_timeout
 from src.web_search import get_search_provider, WebSearchProvider
-
 logger = logging.getLogger(__name__)
 
 T = settings.state_timeout
@@ -128,18 +128,35 @@ class ResearchOrchestrator:
             )
             end_step()
 
-            # ── 2. Clarification (if needed) ─────────────────────
+            # ── 2. Clarification (reflection / human-in-the-loop) ─
             resolved_query = query
             if had_ambiguities and not skip_clarification:
                 log_agent_state("CLARIFYING", f"Query has {len(analysis.ambiguities)} ambiguous dimensions")
                 begin_step("Clarification")
                 progress.set_tool("LLM / ClarificationEngine")
-                progress.set_action("Generating clarifying question…")
+                progress.set_action("Resolving ambiguities…")
                 progress.log("🧠 Thought: Query has ambiguous dimensions", "thought")
                 progress.log(f"   Dimensions: {analysis.ambiguities}", "data")
-                progress.log("   Asking user for clarification before proceeding…", "data")
                 progress.phase("Query clarification")
-                ...
+
+                clarification = await self._query_analyzer.generate_clarification(
+                    query, analysis.ambiguities
+                )
+
+                if clarification.needs_clarification and clarification.question:
+                    progress.log(f"   Asking user: {clarification.question}", "data")
+                    print_step("Clarification Needed", clarification.question)
+                    answer = Prompt.ask(f"[bold cyan]{clarification.question}[/bold cyan]")
+                    if answer.strip():
+                        resolved_query = f"{clarification.resolved_query or query}. User clarified: {answer.strip()}"
+                        progress.log(f"   User clarified → {answer.strip()}", "data")
+                    else:
+                        resolved_query = clarification.resolved_query or query
+                        progress.log("   No answer — using LLM-resolved query", "data")
+                else:
+                    resolved_query = clarification.resolved_query or query
+                    progress.log(f"   Ambiguities resolved via reflection → {resolved_query}", "data")
+
                 progress.mark_done("Query clarification")
                 end_step()
 
