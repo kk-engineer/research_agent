@@ -1,0 +1,33 @@
+[project]
+name = "research-agent"
+version = "1.0.0"
+description = "Autonomous AI research agent that retrieves and synthesizes web information into citation-grounded reports"
+authors = [
+    {name = "RoboSathi AI Engineering Team"},
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0.0",
+    "httpx>=0.27.0",
+    "beautifulsoup4>=4.12.0",
+    "openai>=1.0.0",
+    "tavily-python>=0.7.24",
+    "tavily-cli>=0.1.2",
+    "ddgs>=0.1.0",
+    "rich>=13.0.0",
+    "python-dotenv>=1.0.0",
+    "pyperclip>=1.8.2",
+]
+
+[project.scripts]
+research-agent = "src.main:entry_point"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.setuptools.package-data]
+src = ["py.typed"]

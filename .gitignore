@@ -1,0 +1,76 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+.venv.bak/
+venv.bak/
+env.bak/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Package build artifacts
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Dependency lock files
+uv.lock
+Pipfile.lock
+poetry.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+Icon
+._*
+Spotlight-V100
+.Trashes
+
+# Logs
+*.log
+
+# Generated reports
+research_reports/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+
+# Linting / type checking
+.mypy_cache/
+.ruff_cache/
+.tox/
+.python-version
+
+# OS junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/

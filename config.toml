@@ -1,0 +1,53 @@
+# =============================================================================
+# Research Agent — Configuration (non-secret settings)
+# =============================================================================
+# Secrets (API keys) go in .env — this file holds everything else.
+
+[llm]
+provider = "llamacpp"         # openai | llamacpp | mock
+model = "mistral-nemo-12b"
+max_tokens = 8192
+request_timeout = 300
+
+[llama]
+base_url = "http://localhost:8000/v1"
+model = "mistral-nemo-12b"
+
+[embeddings]
+provider = "llamacpp"
+model = "nomic-embed-text-v1.5"
+base_url = "http://localhost:8001/v1"
+
+[search]
+provider = "tavily"           # tavily | duckduckgo
+max_results = 1
+top_urls_to_fetch = 3
+
+[claims]
+# When true, skip LLM-based claim extraction from web page content and
+# use search-result snippets directly as claims.  Faster but less accurate.
+disable = true
+
+[performance]
+state_timeout = 120
+page_fetch_timeout = 10
+max_chunks_per_page = 2
+max_contradiction_pairs = 5
+max_tool_calls = 5
+min_sub_questions = 2
+max_sub_questions = 3
+
+[logging]
+# level: DEBUG | INFO | WARNING | ERROR
+level = "DEBUG"
+# File path for persistent debug logs (default: research_agent.log)
+file = "research_agent.log"
+# verbosity: minimal | normal | debug | trace
+#   minimal - only errors and final result
+#   normal  - steps, progress, key events
+#   debug   - LLM prompts, search results, details
+#   trace   - full raw prompts/responses, everything
+verbosity = "debug"
+
+[agent]
+session_id = "default"
