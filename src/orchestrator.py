@@ -138,21 +138,9 @@ class ResearchOrchestrator:
                 progress.log("🧠 Thought: Query has ambiguous dimensions", "thought")
                 progress.log(f"   Dimensions: {analysis.ambiguities}", "data")
                 progress.log("   Asking user for clarification before proceeding…", "data")
-                progress.phase("Clarifying query")
-
-                async with timed_async("clarification"):
-                    clarification = await self._query_analyzer.generate_clarification(
-                        query, analysis.ambiguities
-                    )
-                if clarification:
-                    progress.add_tokens(200)
-                    self._console.print(
-                        f"\n[bold yellow]Clarification needed:[/bold yellow] "
-                        f"{clarification.question}"
-                    )
-                    resolved_query = clarification.resolved_query
-                    progress.log(f"   Resolved query: {resolved_query}", "data")
-                progress.mark_done("Clarifying query")
+                progress.phase("Query clarification")
+                ...
+                progress.mark_done("Query clarification")
                 end_step()
 
             # ── 3. Sub-question planning ─────────────────────────
@@ -162,7 +150,7 @@ class ResearchOrchestrator:
             progress.set_action("Decomposing query into research sub-questions…")
             progress.log("🧠 Thought: Decompose into independent sub-questions for parallel research", "thought")
             progress.log(AgentLogger.llm_call("SubQueryPlanner.decompose"), "llm")
-            progress.phase("Planning sub-questions")
+            progress.phase("Sub-question planning")
 
             tracer.event("Sub-question planning start", "plan")
             async with timed_async("sub_question_planning"):
@@ -176,7 +164,7 @@ class ResearchOrchestrator:
             if not sub_questions:
                 sub_questions = [SubQuestion(text=f"What are the key facts about {query}?")]
             progress.add_tokens(300)
-            progress.mark_done("Planning sub-questions")
+            progress.mark_done("Sub-question planning")
             progress.log(
                 f"   Planned {len(sub_questions)} sub-questions for parallel research", "data"
             )
@@ -270,8 +258,7 @@ class ResearchOrchestrator:
                     f"🧠 Thought: Deduplicate {len(all_claims)} claim(s) from multiple sources",
                     "thought",
                 )
-                progress.phase("Deduplicating")
-
+                progress.phase("Deduplication")
                 tracer.event("Deduplication start", "dedup")
                 before = len(self._claim_store.get_all_claims())
                 removed = self._claim_store.deduplicate()
@@ -281,7 +268,7 @@ class ResearchOrchestrator:
                     f"Dedup: {before} → {after} ({removed} removed)", "dedup",
                     time.monotonic() - total_start,
                 )
-                progress.mark_done("Deduplicating", f"removed {removed}")
+                progress.mark_done("Deduplication", f"removed {removed}")
                 progress.log(f"   {before} → {after}  ({removed} duplicate(s) removed)", "data")
                 print_step("Deduplication", f"{before} → {after}  ({removed} removed)")
                 end_step()
@@ -297,7 +284,7 @@ class ResearchOrchestrator:
                 progress.log(
                     f"   Checking {len(all_claims)} claims across sources for conflicts", "data"
                 )
-                progress.phase("Checking contradictions")
+                progress.phase("Contradiction detection")
 
                 tracer.event("Contradiction detection start", "contradiction")
                 async with timed_async("contradiction_detection"):
@@ -313,7 +300,7 @@ class ResearchOrchestrator:
                 if contradictions is None:
                     contradictions = []
                 progress.add_tokens(len(all_claims) * 50)
-                progress.mark_done("Checking contradictions", f"{len(contradictions)} found")
+                progress.mark_done("Contradiction detection", f"{len(contradictions)} found")
                 if contradictions:
                     progress.log(AgentLogger.contradiction(len(contradictions)), "warn")
                     for c in contradictions:
@@ -337,7 +324,7 @@ class ResearchOrchestrator:
             progress.log("🧠 Thought: Synthesize all verified claims into a structured report", "thought")
             progress.log(AgentLogger.llm_call("SynthesisEngine.synthesize"), "llm")
             progress.log(f"   Generating report from {len(all_claims)} {source_type}", "data")
-            progress.phase("Writing report")
+            progress.phase("Report synthesis")
 
             tracer.event("Report synthesis start", "synthesize")
             async with timed_async("report_synthesis"):
@@ -418,7 +405,7 @@ class ResearchOrchestrator:
             report.generated_at = datetime.utcnow()
             report.tool_calls_used = self._loop_guard.tool_call_count
             progress.add_tokens(2000)
-            progress.mark_done("Writing report", f"{len(all_claims)} {source_label}")
+            progress.mark_done("Report synthesis", f"{len(all_claims)} {source_label}")
 
             total_dur = time.monotonic() - total_start
             progress.log(
