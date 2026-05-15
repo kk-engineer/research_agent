@@ -83,7 +83,7 @@ cd research_agent
 ### 2. Create a virtual environment
 
 ```bash
-python -m venv .venv
+uv venv
 ```
 
 ```bash
@@ -95,21 +95,7 @@ source .venv/bin/activate
 ### 3. Install with uv (recommended)
 
 ```bash
-pip install uv
-```
-
-```bash
 uv sync
-```
-
-Or with plain pip:
-
-```bash
-pip install -r requirements.txt
-```
-
-```bash
-pip install -e .
 ```
 
 ### 4. Configure environment
@@ -141,10 +127,10 @@ python src/main.py --validate-config
 
 ## Usage
 
-### Single query
+### Interactive Shell (Enter research topic/user query)
 
 ```bash
-python src/main.py "What are the latest advances in mRNA vaccine technology?"
+ python src/main.py -i
 ```
 
 The report is automatically saved to `research_reports/{slug}_research_report.md`
