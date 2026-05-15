@@ -47,17 +47,17 @@ class ContradictionDetector:
         candidates: list[tuple[ClaimChunk, ClaimChunk]] = []
         for i in range(len(sources)):
             for j in range(i + 1, len(sources)):
-                for ca in groups[sources[i]][:3]:
-                    for cb in groups[sources[j]][:3]:
+                for ca in groups[sources[i]][: settings.max_claims_per_source]:
+                    for cb in groups[sources[j]][: settings.max_claims_per_source]:
                         if self._topic_overlap(ca.text, cb.text):
                             candidates.append((ca, cb))
         return candidates
 
     def _topic_overlap(self, text_a: str, text_b: str) -> bool:
-        words_a = {w.lower() for w in text_a.split() if len(w) > 4}
-        words_b = {w.lower() for w in text_b.split() if len(w) > 4}
+        words_a = {w.lower() for w in text_a.split() if len(w) > settings.contradiction_min_word_length}
+        words_b = {w.lower() for w in text_b.split() if len(w) > settings.contradiction_min_word_length}
         overlap = words_a & words_b
-        return len(overlap) >= 2
+        return len(overlap) >= settings.min_overlap_words
 
     async def _check_pair(
         self, a: ClaimChunk, b: ClaimChunk
@@ -73,10 +73,10 @@ class ContradictionDetector:
                 system_prompt=DETECT_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 response_model=None,
-                temperature=0.05,
-                max_tokens=256,
+                temperature=settings.contradiction_llm_temperature,
+                max_tokens=settings.contradiction_max_tokens,
             ),
-            timeout_sec=10.0,
+            timeout_sec=settings.contradiction_check_timeout,
             label="contradiction_check",
         )
 

@@ -4,6 +4,8 @@ import re
 
 from bs4 import BeautifulSoup, Tag
 
+from src.config import settings
+
 
 def extract_meaningful_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
@@ -16,13 +18,15 @@ def extract_meaningful_text(html: str) -> str:
         if not isinstance(tag, Tag):
             continue
         text = tag.get_text(separator=" ", strip=True)
-        if len(text) > 30:
+        if len(text) > settings.min_fragment_length:
             sections.append(text)
 
     return "\n\n".join(sections)
 
 
-def split_into_chunks(text: str, max_chunk_size: int = 2000) -> list[str]:
+def split_into_chunks(text: str, max_chunk_size: int | None = None) -> list[str]:
+    if max_chunk_size is None:
+        max_chunk_size = settings.default_chunk_size
     paragraphs = text.split("\n\n")
     chunks: list[str] = []
     current: list[str] = []
@@ -51,16 +55,25 @@ def extract_domain(url: str) -> str:
 def extract_relevant_sentences(
     text: str,
     query: str,
-    max_sentences: int = 15,
-    min_sentence_len: int = 40,
-    max_sentence_len: int = 500,
+    max_sentences: int | None = None,
+    min_sentence_len: int | None = None,
+    max_sentence_len: int | None = None,
 ) -> list[str]:
+    if max_sentences is None:
+        max_sentences = settings.max_sentences
+    if min_sentence_len is None:
+        min_sentence_len = settings.min_sentence_length
+    if max_sentence_len is None:
+        max_sentence_len = settings.max_sentence_length
+
     query_words = {
         w.lower() for w in re.findall(r"[a-zA-Z]\w+", query) if len(w) > 2
     }
 
     sentences = re.split(r"(?<=[.!?])\s+", text)
     scored: list[tuple[str, float]] = []
+
+    bonus_keywords = tuple(settings.relevance_bonus_keywords)
 
     for sent in sentences:
         sent = sent.strip()
@@ -74,19 +87,17 @@ def extract_relevant_sentences(
 
         overlap = len(query_words & sent_words)
 
-        bonus = 0.0
-        if any(kw in sent_lower for kw in ("result", "according", "found", "study", "report", "data", "research", "percent", "million", "billion")):
-            bonus = 0.3
+        bonus = settings.relevance_bonus_score if any(kw in sent_lower for kw in bonus_keywords) else 0.0
 
         score = overlap / max(len(query_words), 1) + bonus
-        if overlap >= 1:
+        if overlap >= settings.sentence_min_overlap:
             scored.append((sent, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)
     seen = set()
     deduped: list[str] = []
     for sent, _ in scored:
-        key = sent.lower()[:80]
+        key = sent.lower()[: settings.dedup_prefix_length]
         if key not in seen:
             seen.add(key)
             deduped.append(sent)

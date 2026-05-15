@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Optional
 
@@ -30,7 +31,7 @@ def log_llm_call_start(
 
     tracer.event(f"LLM call: {purpose_tag} ({model})", "llm")
 
-    show_full = settings.show_llm_prompts
+    show_full = settings.show_llm_prompts and logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
     if show_full:
         meta = make_key_value_table(
@@ -41,6 +42,7 @@ def log_llm_call_start(
                 ("Max tokens", str(max_tokens or settings.llm_max_tokens)),
                 ("Purpose", purpose),
             ],
+            key_style="bold yellow",
         )
 
         content_parts = [meta, Text("")]
@@ -116,11 +118,11 @@ def log_llm_call_end(
     tracer.complete_event(f"LLM response: {purpose_tag}", "llm", elapsed)
 
     token_info = (
-        f"[bold]Tokens:[/bold] {total_tokens:,}  "
+        f"[bold yellow]Tokens:[/bold yellow] {total_tokens:,}  "
         f"(in: {prompt_tokens:,}, out: {completion_tokens:,})"
     ) if total_tokens else ""
 
-    time_info = f"[bold]Time:[/bold] {elapsed:.2f}s"
+    time_info = f"[bold yellow]Time:[/bold yellow] {elapsed:.2f}s"
 
     if not success:
         console.print(
@@ -141,9 +143,9 @@ def log_llm_call_end(
         content_parts = []
 
         if token_info:
-            content_parts.append(Text(token_info, style=Theme.INFO))
+            content_parts.append(Text.from_markup(token_info))
         if time_info:
-            content_parts.append(Text(time_info, style=Theme.INFO))
+            content_parts.append(Text.from_markup(time_info))
         if retry_count:
             content_parts.append(Text(f"Retries: {retry_count}", style=Theme.WARNING))
 

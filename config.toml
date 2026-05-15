@@ -8,6 +8,9 @@ provider = "llamacpp"         # openai | llamacpp | mock
 model = "mistral-nemo-12b"
 max_tokens = 8192
 request_timeout = 300
+extraction_max_tokens = 8192
+contradiction_max_tokens = 8192
+synthesis_max_tokens = 8192
 
 [llama]
 base_url = "http://localhost:8000/v1"
@@ -21,19 +24,133 @@ base_url = "http://localhost:8001/v1"
 [search]
 provider = "tavily"           # tavily | duckduckgo
 max_results = 1
-top_urls_to_fetch = 3
+top_urls_to_fetch = 2
 
 [claims]
 # When true, skip LLM-based claim extraction from web page content and
 # use search-result snippets directly as claims.  Faster but less accurate.
-disable = true
+disable = false
+
+# Domain authority to assign to search-result snippets in fast mode
+fast_mode_domain_authority = 0.5
+
+# Minimum snippet length (chars) to accept in fast mode
+fast_mode_min_snippet_length = 10
+
+[extraction]
+# Max characters per chunk when splitting page text
+chunk_size = 4000
+# Truncate each chunk to this many chars before sending to LLM
+chunk_truncation_length = 2500
+# Extra chunks to try when LLM extraction returns empty
+extra_fallback_chunks = 2
+# Discard extracted claims shorter than this
+min_claim_length = 10
+# LLM temperature for extraction calls
+llm_temperature = 0.1
+
+[text_processing]
+# Discard HTML text fragments shorter than this
+min_fragment_length = 30
+# Default chunk size used in split_into_chunks
+default_chunk_size = 2000
+# Min/max sentence length for keyword fallback extraction
+min_sentence_length = 40
+max_sentence_length = 500
+# Max sentences returned from keyword fallback
+max_sentences = 15
+# Minimum query-word overlap for a sentence to be kept
+sentence_min_overlap = 1
+# Number of chars used as dedup key prefix for sentences
+dedup_prefix_length = 80
+# Score bonus added when a sentence contains any relevance keyword
+relevance_bonus_score = 0.3
+# Keywords that add a score bonus in relevance scoring
+relevance_bonus_keywords = ["result", "according", "found", "study", "report", "data", "research", "percent", "million", "billion"]
+
+[page_fetching]
+# Max HTML bytes to read from each page (256 KB)
+max_response_bytes = 262144
+# Connect timeout in seconds
+connect_timeout = 8.0
+# Total page fetch timeout (seconds) — overrides performance.page_fetch_timeout
+timeout = 10
+
+[scoring]
+# Weights for combined search-result score
+authority_weight = 0.4
+relevance_weight = 0.4
+freshness_weight = 0.2
+# Number of days over which freshness linearly decays to min
+days_decay = 365
+# Default scores when information is missing
+default_domain_authority = 0.5
+default_snippet_relevance = 0.5
+default_freshness = 0.5
+# Freshness: days within which score = 1.0
+freshness_max_days = 30
+# Minimum freshness score for very old content
+freshness_min_score = 0.1
+
+# Domain authority overrides — matched as substrings against URL
+[[scoring.authority_patterns]]
+domain = ".gov"
+score = 1.0
+
+[[scoring.authority_patterns]]
+domain = ".edu"
+score = 0.95
+
+[[scoring.authority_patterns]]
+domain = ".int"
+score = 0.9
+
+[[scoring.authority_patterns]]
+domain = ".org"
+score = 0.7
+
+[[scoring.authority_patterns]]
+domain = "wikipedia.org"
+score = 0.75
+
+[[scoring.authority_patterns]]
+domain = "reuters.com"
+score = 0.85
+
+[[scoring.authority_patterns]]
+domain = "bloomberg.com"
+score = 0.85
+
+[[scoring.authority_patterns]]
+domain = "nature.com"
+score = 0.9
+
+[[scoring.authority_patterns]]
+domain = "sciencedirect.com"
+score = 0.9
+
+[contradiction]
+# LLM temperature for contradiction checks
+llm_temperature = 0.05
+# Timeout per contradiction check call
+check_timeout = 10.0
+# Max claims to take per source group when building pairs
+max_claims_per_source = 3
+# Minimum word length (chars) for a word to count in topic overlap
+min_word_length = 4
+# Minimum overlapping words required for topic match
+min_overlap_words = 2
+
+[synthesis]
+# LLM temperature for report synthesis
+llm_temperature = 0.3
 
 [performance]
 state_timeout = 120
 page_fetch_timeout = 10
 max_chunks_per_page = 2
 max_contradiction_pairs = 5
-max_tool_calls = 5
+max_tool_calls = 3
 min_sub_questions = 1
 max_sub_questions = 2
 
@@ -49,10 +166,10 @@ file = "research_agent.log"
 #   trace   - full raw prompts/responses, everything
 verbosity = "debug"
 # Granular logging controls (override verbosity defaults)
-# show_llm_prompts = true      # Show full LLM prompts/responses
-# show_search_details = true   # Show search queries and results
-# show_agent_state = true      # Show agent state transitions & thoughts
-# show_intermediate_steps = true # Show all intermediate processing steps
+show_llm_prompts = true      # Show full LLM prompts/responses
+show_search_details = true   # Show search queries and results
+show_agent_state = true      # Show agent state transitions & thoughts
+show_intermediate_steps = true # Show all intermediate processing steps
 
 [agent]
 session_id = "default"

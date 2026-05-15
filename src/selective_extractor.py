@@ -24,7 +24,7 @@ class SelectiveExtractor:
         if not page_text:
             return []
 
-        chunks = split_into_chunks(page_text, max_chunk_size=4000)
+        chunks = split_into_chunks(page_text, max_chunk_size=settings.extraction_chunk_size)
         chunks = chunks[: settings.max_chunks_per_page]
         if not chunks:
             return []
@@ -33,8 +33,10 @@ class SelectiveExtractor:
         claims = await self._extract_batch(chunks, sub_question, url, domain)
 
         if not claims and len(chunks) >= settings.max_chunks_per_page:
-            more_chunks = split_into_chunks(page_text, max_chunk_size=4000)
-            extra = more_chunks[settings.max_chunks_per_page : settings.max_chunks_per_page + 2]
+            more_chunks = split_into_chunks(page_text, max_chunk_size=settings.extraction_chunk_size)
+            extra = more_chunks[
+                settings.max_chunks_per_page : settings.max_chunks_per_page + settings.extra_fallback_chunks
+            ]
             if extra:
                 claims = await self._extract_batch(
                     chunks + extra, sub_question, url, domain
@@ -62,7 +64,7 @@ class SelectiveExtractor:
                 text=s,
                 source_url=url,
                 source_domain=domain,
-                domain_authority=0.5,
+                domain_authority=settings.default_domain_authority,
                 extracted_at=now,
                 sub_question_id=sub_question.id,
             )
@@ -77,7 +79,7 @@ class SelectiveExtractor:
         domain: str,
     ) -> list[ClaimChunk]:
         sections_str = "\n\n---\n\n".join(
-            f"[Section {i+1}]\n{chunk[:2500]}" for i, chunk in enumerate(chunks)
+            f"[Section {i+1}]\n{chunk[:settings.chunk_truncation_length]}" for i, chunk in enumerate(chunks)
         )
 
         user_prompt = (
@@ -91,8 +93,8 @@ class SelectiveExtractor:
                 system_prompt=BATCH_RELEVANCE_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 response_model=ExtractionResponse,
-                temperature=0.1,
-                max_tokens=1536,
+                temperature=settings.extraction_llm_temperature,
+                max_tokens=settings.extraction_max_tokens,
             ),
             timeout_sec=settings.llm_request_timeout,
             label=f"extract {url[:40]}",
@@ -104,7 +106,7 @@ class SelectiveExtractor:
         now = datetime.utcnow()
         claims: list[ClaimChunk] = []
         for item in result.evidence:
-            if isinstance(item, EvidenceItem) and len(item.claim.strip()) > 10:
+            if isinstance(item, EvidenceItem) and len(item.claim.strip()) > settings.min_claim_length:
                 claims.append(
                     ClaimChunk(
                         text=item.claim.strip(),

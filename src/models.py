@@ -171,4 +171,4 @@ class Report(BaseModel):
     references: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     total_claims: int = 0
-    tool_calls_used: int = 0
+    web_search_calls: int = 0

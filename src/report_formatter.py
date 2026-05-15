@@ -11,7 +11,7 @@ def format_report(report: Report) -> str:
     lines.append(f"**Query:** {report.query}\n")
     lines.append(f"**Generated:** {report.generated_at.isoformat()}\n")
     lines.append(f"**Sources consulted:** {len(report.references)}")
-    lines.append(f"**Tool calls used:** {report.tool_calls_used}")
+    lines.append(f"**Web search calls:** {report.web_search_calls}")
     lines.append("")
 
     if report.direct_answer:

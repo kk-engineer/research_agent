@@ -23,28 +23,18 @@ def log_search_start(
 ) -> float:
     start = time.monotonic()
 
-    show_full = settings.show_search_details
-
-    if show_full:
-        console.print(
-            make_panel(
-                Group(
-                    make_key_value_table([
-                        ("Provider", provider),
-                        ("Query", query),
-                        ("Max results", str(max_results)),
-                        ("Depth", depth),
-                    ]),
-                ),
-                title="[bold]🔍 Web Search[/bold]",
-                border_style=Theme.PANEL_SEARCH,
-            )
+    console.print(
+        make_panel(
+            make_key_value_table([
+                ("Provider", provider),
+                ("Query", query),
+                ("Max results", str(max_results)),
+                ("Depth", depth),
+            ]),
+            title=f"[bold {Theme.PANEL_SEARCH_REQ}]🔍 Search Request — {provider}[/bold {Theme.PANEL_SEARCH_REQ}]",
+            border_style=Theme.PANEL_SEARCH_REQ,
         )
-    else:
-        console.print(
-            f"  🔍 [bold {Theme.SEARCH}]{provider}[/bold {Theme.SEARCH}] "
-            f"\"{query[:120]}\"",
-        )
+    )
 
     return start
 
@@ -72,46 +62,58 @@ def log_search_end(
     )
     metrics.record_search(record)
 
-    show_full = settings.show_search_details
+    content_parts = [
+        make_key_value_table([
+            ("Provider", provider),
+            ("Results", str(result_count)),
+            ("Time", f"{elapsed:.2f}s"),
+        ]),
+    ]
 
-    if show_full:
-        content_parts = [
-            make_key_value_table([
-                ("Provider", provider),
-                ("Results", str(result_count)),
-                ("Time", f"{elapsed:.2f}s"),
-            ]),
-        ]
-
-        if results:
-            result_rows = []
-            for i, r in enumerate(results, 1):
-                title = r.title or "No title"
-                url = r.url or "No URL"
-                snippet = (r.snippet or "")[:200]
-                result_rows.append(
-                    Panel(
-                        Text(f"{title}\n{url}\n{snippet}", style=Theme.INFO),
-                        title=f"[bold]#{i}[/bold]",
-                        border_style="dim",
-                        box=box.ROUNDED,
-                        padding=(0, 1),
-                    )
-                )
-            if result_rows:
-                content_parts.append(Text(""))
-                content_parts.append(Group(*result_rows))
-        else:
-            content_parts.append(Text("No results returned", style=f"bold {Theme.WARNING}"))
-
-        console.print(
-            make_panel(
-                Group(*content_parts),
-                title=f"[bold {Theme.PANEL_SEARCH}]🔍 Search Results — {provider} ({result_count} results)[/bold {Theme.PANEL_SEARCH}]",
-                border_style=Theme.PANEL_SEARCH,
+    if results:
+        result_panels = []
+        for i, r in enumerate(results, 1):
+            detail_text = Text.assemble(
+                ("Title: ", "bold"), (f"{r.title or 'No title'}\n", ""),
+                ("URL: ", "bold"), (f"{r.url or 'No URL'}\n", ""),
+                ("Snippet: ", "bold"), (f"{(r.snippet or '')[:500]}\n", ""),
             )
-        )
+            if getattr(r, 'content', None):
+                content_str = r.content or ""
+                if content_str:
+                    detail_text.append_text(
+                        Text.assemble(
+                            ("Content: ", "bold"),
+                            (f"{content_str[:800]}", "dim"),
+                        )
+                    )
+            if getattr(r, 'source', None):
+                detail_text.append_text(Text(f"\nSource: {r.source}", style="bold"))
+            if getattr(r, 'published_date', None):
+                detail_text.append_text(Text(f"\nPublished: {r.published_date}", style="dim"))
+
+            result_panels.append(
+                Panel(
+                    detail_text,
+                    title=f"[bold]#{i}[/bold]",
+                    border_style="green",
+                    box=box.ROUNDED,
+                    padding=(0, 1),
+                )
+            )
+        if result_panels:
+            content_parts.append(Text(""))
+            content_parts.append(Group(*result_panels))
     else:
-        console.print(
-            f"  [green]✔[/green] {provider} → {result_count} results  ({elapsed:.2f}s)"
+        content_parts.append(Text("No results returned", style=f"bold {Theme.WARNING}"))
+
+    console.print(
+        make_panel(
+            Group(*content_parts),
+            title=(
+                f"[bold {Theme.PANEL_SEARCH_RESP}]🔍 Search Response — {provider} "
+                f"({result_count} results, {elapsed:.2f}s)[/bold {Theme.PANEL_SEARCH_RESP}]"
+            ),
+            border_style=Theme.PANEL_SEARCH_RESP,
         )
+    )

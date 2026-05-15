@@ -8,14 +8,6 @@ import httpx
 from src.config import settings
 from src.text_processor import extract_meaningful_text
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-
-MAX_RESPONSE_BYTES = 256 * 1024
-
 _client: Optional[httpx.AsyncClient] = None
 
 
@@ -23,9 +15,9 @@ def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
         _client = httpx.AsyncClient(
-            timeout=httpx.Timeout(settings.page_fetch_timeout, connect=8.0),
+            timeout=httpx.Timeout(settings.page_fetch_timeout, connect=settings.page_connect_timeout),
             follow_redirects=True,
-            headers={"User-Agent": USER_AGENT},
+            headers={"User-Agent": settings.page_user_agent},
             limits=httpx.Limits(max_keepalive_connections=8, max_connections=16),
         )
     return _client
@@ -36,7 +28,7 @@ async def fetch_page_text(url: str) -> Optional[str]:
     try:
         response = await client.get(url)
         response.raise_for_status()
-        content = response.text[:MAX_RESPONSE_BYTES]
+        content = response.text[: settings.max_response_bytes]
         return extract_meaningful_text(content)
     except Exception:
         return None

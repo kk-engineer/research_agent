@@ -61,6 +61,8 @@ _LOG_STYLES = {
 
 
 class ResearchProgress:
+    _SPINNER_CHARS = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
     def __init__(self, console: Console, use_live: bool = True) -> None:
         self._console = console
         self._start = time.monotonic()
@@ -75,6 +77,7 @@ class ResearchProgress:
         self._current_tool: str = ""
         self._step_timer: float = 0.0
         self._logs: deque = deque(maxlen=200)
+        self._streaming_text: str = ""
 
     def start(self) -> None:
         if self._use_live:
@@ -153,6 +156,14 @@ class ResearchProgress:
         self._claims_found += n
         self._refresh()
 
+    def add_stream_token(self, token: str) -> None:
+        self._streaming_text += token
+        self._refresh()
+
+    def clear_stream(self) -> None:
+        self._streaming_text = ""
+        self._refresh()
+
     def _refresh(self) -> None:
         if self._live:
             self._live.update(self._render())
@@ -165,6 +176,12 @@ class ResearchProgress:
 
     def _active_count(self) -> int:
         return sum(1 for p in self._phases if p.status == _RUNNING)
+
+    @property
+    def _spinner_char(self) -> str:
+        t = time.monotonic()
+        idx = int(t * 10) % len(self._SPINNER_CHARS)
+        return self._SPINNER_CHARS[idx]
 
     def _elapsed_str(self) -> str:
         t = time.monotonic() - self._start
@@ -221,15 +238,20 @@ class ResearchProgress:
             if self._current_tool:
                 parts.append(f"⚙ {self._current_tool}")
             if self._action_text:
-                parts.append(f"▶ {self._action_text}")
+                dots = "." * (int(time.monotonic() * 2) % 4)
+                parts.append(f"{self._spinner_char} {self._action_text}{dots}")
             if step_time:
                 parts.append(f"[{step_time}]")
             info = Text("  " + "  ".join(parts), style=_STL_MUTED)
             body.append(info)
 
+        if self._streaming_text:
+            preview = self._streaming_text[-200:]
+            body.append(Text(f"  › {preview}", style=_STL_ACTIVE))
+
         if self._logs:
             log_lines: list[Text] = []
-            for msg, lvl in list(self._logs)[-8:]:
+            for msg, lvl in list(self._logs)[-100:]:
                 style = _LOG_STYLES.get(lvl, _STL_MUTED)
                 prefixes = {"active": "●", "done": "✔", "warn": "⚠", "tool": "⚙", "llm": "›", "thought": "🧠", "data": "·", "info": "·"}
                 prefix = prefixes.get(lvl, "·")

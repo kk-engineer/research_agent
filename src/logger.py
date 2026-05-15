@@ -34,8 +34,6 @@ def begin_step(name: str) -> None:
     _step_name = name
     logging.getLogger(__name__).info("▸ %s", name)
     tracer.event(name, "general")
-    if settings.show_intermediate_steps or settings.verbosity_level >= 1:
-        console.print(f"  [bold {Theme.PRIMARY}]▸[/bold {Theme.PRIMARY}] {name}")
 
 
 def end_step(status: str = "done") -> float:
@@ -45,29 +43,12 @@ def end_step(status: str = "done") -> float:
     elapsed = time.monotonic() - _step_start
     log = logging.getLogger(__name__)
 
-    should_print = settings.show_intermediate_steps or settings.verbosity_level >= 1
-
     if status == "done":
         log.info("  ✔ %s  [%s]  (%.2fs)", "done", _step_name, elapsed)
-        if should_print:
-            console.print(
-                f"    [green]✔[/green] {_step_name}  "
-                f"({elapsed:.2f}s)"
-            )
     elif status == "timeout":
         log.warning("  ⏱ %s  [%s]  (%.2fs)", "timeout", _step_name, elapsed)
-        if should_print:
-            console.print(
-                f"    [yellow]⏱[/yellow] {_step_name} timed out  "
-                f"({elapsed:.2f}s)"
-            )
     else:
         log.warning("  ✘ %s  [%s]  (%.2fs)", status, _step_name, elapsed)
-        if should_print:
-            console.print(
-                f"    [red]✘[/red] {_step_name}: {status}  "
-                f"({elapsed:.2f}s)"
-            )
 
     _step_start = None
     _step_name = ""
@@ -139,27 +120,12 @@ def log_agent_state(state: str, detail: str = "") -> None:
         return
     msg = AgentLogger.agent_state(state, detail)
     logging.getLogger(__name__).info(msg)
-    console.print(
-        Panel(
-            Text(f"{state}", style=f"bold {Theme.HIGHLIGHT}"),
-            title=f"[bold {Theme.PANEL_INFO}]🔄 Agent State[/bold {Theme.PANEL_INFO}]",
-            border_style=Theme.PANEL_INFO,
-            padding=(0, 1),
-        )
-    )
 
 
 def log_intermediate_step(label: str, content: str = "") -> None:
     if not settings.show_intermediate_steps:
         return
-    logging.getLogger(__name__).info("Step: %s", label)
-    console.print(
-        make_panel(
-            syntax_block(content) if content else Text(label, style=Theme.INFO),
-            title=f"[bold {Theme.PANEL_INFO}]🔬 Intermediate: {label}[/bold {Theme.PANEL_INFO}]",
-            border_style=Theme.PANEL_INFO,
-        )
-    )
+    logging.getLogger(__name__).info("Step: %s  |  %s", label, content[:200] if content else "")
 
 
 def log_json_event(event_type: str, data: dict[str, Any]) -> None:
@@ -267,12 +233,12 @@ def display_final_summary() -> None:
         llm_table.add_column(width=10)
 
         llm_table.add_row(
-            Text("#", style="bold"),
-            Text("Purpose", style="bold"),
-            Text("Time", style="bold"),
-            Text("Tokens", style="bold"),
-            Text("Cost", style="bold"),
-            Text("Status", style="bold"),
+            Text("#", style="bold yellow"),
+            Text("Purpose", style="bold yellow"),
+            Text("Time", style="bold yellow"),
+            Text("Tokens", style="bold yellow"),
+            Text("Cost", style="bold yellow"),
+            Text("Status", style="bold yellow"),
         )
         for i, c in enumerate(metrics.llm_calls, 1):
             cost_str = f"${c.estimated_cost:.6f}" if c.estimated_cost else "$0"

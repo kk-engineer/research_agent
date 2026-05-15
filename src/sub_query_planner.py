@@ -31,14 +31,19 @@ class SubQueryPlanner:
         self._llm = llm
 
     async def decompose(self, query: str) -> list[SubQuestion]:
+        target = settings.max_sub_questions
         result = await self._llm.generate(
             system_prompt=DECOMPOSE_SYSTEM_PROMPT,
-            user_prompt=f"Decompose this research query into sub-queries:\n\n{query}",
+            user_prompt=(
+                f"Decompose this research query into exactly {target} sub-queries:\n\n"
+                f"{query}\n\n"
+                f"Generate exactly {target} sub-queries. Do not generate more or fewer."
+            ),
             response_model=DecompositionResponse,
             temperature=0.3,
         )
 
-        sq_items = result.subqueries[: settings.max_sub_questions]
+        sq_items = result.subqueries[: target]
         if len(sq_items) < settings.min_sub_questions:
             sq_texts = self._fallback_split(query)
             return [SubQuestion(text=t) for t in sq_texts]

@@ -73,6 +73,21 @@ class Settings:
             _toml_val(_toml, "llm", "request_timeout", default="30")
         )
     )
+    extraction_max_tokens: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "llm", "extraction_max_tokens", default="1536")
+        )
+    )
+    contradiction_max_tokens: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "llm", "contradiction_max_tokens", default="256")
+        )
+    )
+    synthesis_max_tokens: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "llm", "synthesis_max_tokens", default="4096")
+        )
+    )
 
     # ── llama.cpp ──────────────────────────────────────────────
     llama_base_url: str = field(
@@ -125,6 +140,209 @@ class Settings:
     disable_claims: bool = field(
         default_factory=lambda: bool(
             _toml_val(_toml, "claims", "disable", default=False)
+        )
+    )
+    fast_mode_domain_authority: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "claims", "fast_mode_domain_authority", default="0.5")
+        )
+    )
+    fast_mode_min_snippet_length: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "claims", "fast_mode_min_snippet_length", default="10")
+        )
+    )
+
+    # ── Extraction ─────────────────────────────────────────────
+    extraction_chunk_size: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "extraction", "chunk_size", default="4000")
+        )
+    )
+    chunk_truncation_length: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "extraction", "chunk_truncation_length", default="2500")
+        )
+    )
+    extra_fallback_chunks: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "extraction", "extra_fallback_chunks", default="2")
+        )
+    )
+    min_claim_length: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "extraction", "min_claim_length", default="10")
+        )
+    )
+    extraction_llm_temperature: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "extraction", "llm_temperature", default="0.1")
+        )
+    )
+
+    # ── Text Processing ────────────────────────────────────────
+    min_fragment_length: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "text_processing", "min_fragment_length", default="30")
+        )
+    )
+    default_chunk_size: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "text_processing", "default_chunk_size", default="2000")
+        )
+    )
+    min_sentence_length: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "text_processing", "min_sentence_length", default="40")
+        )
+    )
+    max_sentence_length: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "text_processing", "max_sentence_length", default="500")
+        )
+    )
+    max_sentences: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "text_processing", "max_sentences", default="15")
+        )
+    )
+    sentence_min_overlap: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "text_processing", "sentence_min_overlap", default="1")
+        )
+    )
+    dedup_prefix_length: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "text_processing", "dedup_prefix_length", default="80")
+        )
+    )
+    relevance_bonus_score: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "text_processing", "relevance_bonus_score", default="0.3")
+        )
+    )
+    relevance_bonus_keywords: list[str] = field(
+        default_factory=lambda: _toml_val(
+            _toml, "text_processing", "relevance_bonus_keywords",
+            default=["result", "according", "found", "study", "report", "data",
+                     "research", "percent", "million", "billion"]
+        )
+    )
+
+    # ── Page Fetching ──────────────────────────────────────────
+    max_response_bytes: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "page_fetching", "max_response_bytes", default="262144")
+        )
+    )
+    page_connect_timeout: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "page_fetching", "connect_timeout", default="8.0")
+        )
+    )
+    page_user_agent: str = field(
+        default_factory=lambda: _toml_val(
+            _toml, "page_fetching", "user_agent",
+            default=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                     "AppleWebKit/537.36 (KHTML, like Gecko) "
+                     "Chrome/120.0.0.0 Safari/537.36")
+        )
+    )
+
+    # ── Scoring ────────────────────────────────────────────────
+    authority_weight: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "scoring", "authority_weight", default="0.4")
+        )
+    )
+    relevance_weight: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "scoring", "relevance_weight", default="0.4")
+        )
+    )
+    freshness_weight: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "scoring", "freshness_weight", default="0.2")
+        )
+    )
+    days_decay: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "scoring", "days_decay", default="365")
+        )
+    )
+    default_domain_authority: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "scoring", "default_domain_authority", default="0.5")
+        )
+    )
+    default_snippet_relevance: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "scoring", "default_snippet_relevance", default="0.5")
+        )
+    )
+    default_freshness: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "scoring", "default_freshness", default="0.5")
+        )
+    )
+    freshness_max_days: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "scoring", "freshness_max_days", default="30")
+        )
+    )
+    freshness_min_score: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "scoring", "freshness_min_score", default="0.1")
+        )
+    )
+    authority_patterns: list[dict] = field(
+        default_factory=lambda: _toml_val(
+            _toml, "scoring", "authority_patterns",
+            default=[
+                {"domain": ".gov", "score": 1.0},
+                {"domain": ".edu", "score": 0.95},
+                {"domain": ".int", "score": 0.9},
+                {"domain": ".org", "score": 0.7},
+                {"domain": "wikipedia.org", "score": 0.75},
+                {"domain": "reuters.com", "score": 0.85},
+                {"domain": "bloomberg.com", "score": 0.85},
+                {"domain": "nature.com", "score": 0.9},
+                {"domain": "sciencedirect.com", "score": 0.9},
+            ]
+        )
+    )
+
+    # ── Contradiction ──────────────────────────────────────────
+    contradiction_llm_temperature: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "contradiction", "llm_temperature", default="0.05")
+        )
+    )
+    contradiction_check_timeout: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "contradiction", "check_timeout", default="10.0")
+        )
+    )
+    max_claims_per_source: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "contradiction", "max_claims_per_source", default="3")
+        )
+    )
+    contradiction_min_word_length: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "contradiction", "min_word_length", default="4")
+        )
+    )
+    min_overlap_words: int = field(
+        default_factory=lambda: int(
+            _toml_val(_toml, "contradiction", "min_overlap_words", default="2")
+        )
+    )
+
+    # ── Synthesis ──────────────────────────────────────────────
+    synthesis_llm_temperature: float = field(
+        default_factory=lambda: float(
+            _toml_val(_toml, "synthesis", "llm_temperature", default="0.3")
         )
     )
 

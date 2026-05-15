@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any, Optional
 
 from src.config import settings
@@ -25,6 +26,9 @@ def _trunc(s: str, n: int = _SHORT) -> str:
 
 
 class LLMClient(ABC):
+    def __init__(self) -> None:
+        self.on_token: Optional[Callable[[str], None]] = None
+
     @abstractmethod
     async def generate(
         self,
@@ -57,6 +61,7 @@ class _BaseOpenAIClient(LLMClient):
         embedding_model: str = "",
         embedding_base_url: str = "",
     ) -> None:
+        super().__init__()
         self._model = model
         self._provider = "openai" if "openai" in str(base_url) or not base_url else "llamacpp"
         kwargs: dict[str, Any] = {"api_key": api_key}
@@ -128,6 +133,11 @@ class _BaseOpenAIClient(LLMClient):
         timeout = request_timeout or settings.llm_request_timeout
         start = time.monotonic()
 
+        use_stream = self.on_token is not None and response_model is None
+
+        if use_stream:
+            kwargs["stream"] = True
+
         response = await with_timeout(
             self._client.chat.completions.create(**kwargs),
             timeout_sec=timeout,
@@ -155,13 +165,26 @@ class _BaseOpenAIClient(LLMClient):
                 return _fallback_for_model(response_model)
             return ""
 
-        content = response.choices[0].message.content or ""
+        if use_stream:
+            content_parts: list[str] = []
+            async for chunk in response:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                token = (delta.content or "") if delta else ""
+                if token:
+                    content_parts.append(token)
+                    self.on_token(token)
+            content = "".join(content_parts)
+            if hasattr(response, 'usage') and response.usage:
+                completion_tokens = response.usage.completion_tokens or 0
+        else:
+            content = response.choices[0].message.content or ""
+            if hasattr(response, "usage") and response.usage:
+                u = response.usage
+                prompt_tokens = u.prompt_tokens or 0
+                completion_tokens = u.completion_tokens or 0
+                total_tokens = u.total_tokens or 0
 
-        if hasattr(response, "usage") and response.usage:
-            u = response.usage
-            prompt_tokens = u.prompt_tokens or 0
-            completion_tokens = u.completion_tokens or 0
-            total_tokens = u.total_tokens or 0
+        elapsed = time.monotonic() - start
 
         usage_prefix = ""
         if prompt_tokens > 0:
@@ -306,6 +329,9 @@ class LlamacppClient(_BaseOpenAIClient):
 
 
 class MockLLMClient(LLMClient):
+    def __init__(self) -> None:
+        super().__init__()
+
     async def generate(
         self,
         system_prompt: str,

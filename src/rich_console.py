@@ -35,6 +35,8 @@ class Theme:
 
     PANEL_LLM = "cyan"
     PANEL_SEARCH = "magenta"
+    PANEL_SEARCH_REQ = "yellow"
+    PANEL_SEARCH_RESP = "green"
     PANEL_ERROR = "red"
     PANEL_SUCCESS = "green"
     PANEL_INFO = "blue"
@@ -91,9 +93,9 @@ def make_label_value(label: str, value: str, sep: str = ": ") -> Text:
     )
 
 
-def make_key_value_table(items: list[tuple[str, str]], title: str = "") -> Table:
+def make_key_value_table(items: list[tuple[str, str]], title: str = "", key_style: str = "bold") -> Table:
     table = Table.grid(padding=(0, 2))
-    table.add_column(style="bold", width=20)
+    table.add_column(style=key_style, width=20)
     table.add_column(style="white")
     for k, v in items:
         table.add_row(k, v)

@@ -11,7 +11,7 @@ from rich.prompt import Prompt
 from src.claim_store import ClaimStore, InMemoryClaimStore
 from src.config import settings
 from src.contradiction_detector import ContradictionDetector
-from src.debug_utils import print_step, print_claims_summary, print_debug_info
+from src.debug_utils import print_debug_info
 from src.llm_client import get_llm_client, LLMClient
 from src.logger import AgentLogger, begin_step, end_step, log_json_event, log_agent_state, log_intermediate_step
 from src.loop_guard import LoopGuard
@@ -63,6 +63,7 @@ class ResearchOrchestrator:
 
         progress = ResearchProgress(self._console, use_live=True)
         progress.start()
+        self._llm.on_token = progress.add_stream_token
         progress.log("🧠 Research session started", "thought")
         progress.log(f"📝 Query: {query}", "info")
 
@@ -121,11 +122,6 @@ class ResearchOrchestrator:
                 f"Scope: {analysis.scope}\n"
                 f"Ambiguities: {len(analysis.ambiguities)}\n"
                 f"Constraints: {analysis.constraints}" if hasattr(analysis, 'constraints') else "")
-            print_step(
-                "Query Analysis",
-                f"Scope: {analysis.scope}  Intent: {analysis.primary_intent}  "
-                f"Ambiguities: {len(analysis.ambiguities)}",
-            )
             end_step()
 
             # ── 2. Clarification (reflection / human-in-the-loop) ─
@@ -136,26 +132,30 @@ class ResearchOrchestrator:
                 progress.set_tool("LLM / ClarificationEngine")
                 progress.set_action("Resolving ambiguities…")
                 progress.log("🧠 Thought: Query has ambiguous dimensions", "thought")
-                progress.log(f"   Dimensions: {analysis.ambiguities}", "data")
                 progress.phase("Query clarification")
 
                 clarification = await self._query_analyzer.generate_clarification(
                     query, analysis.ambiguities
                 )
 
+                for amb in analysis.ambiguities:
+                    progress.log(f"   · Ambiguity: {amb}", "data")
+
                 if clarification.needs_clarification and clarification.question:
                     progress.log(f"   Asking user: {clarification.question}", "data")
-                    print_step("Clarification Needed", clarification.question)
                     answer = Prompt.ask(f"[bold cyan]{clarification.question}[/bold cyan]")
                     if answer.strip():
                         resolved_query = f"{clarification.resolved_query or query}. User clarified: {answer.strip()}"
-                        progress.log(f"   User clarified → {answer.strip()}", "data")
+                        progress.log(f"   User resolved → {answer.strip()}", "done")
                     else:
                         resolved_query = clarification.resolved_query or query
                         progress.log("   No answer — using LLM-resolved query", "data")
                 else:
                     resolved_query = clarification.resolved_query or query
-                    progress.log(f"   Ambiguities resolved via reflection → {resolved_query}", "data")
+                    progress.log(f"   Resolved via reflection → {resolved_query}", "done")
+                    if clarification.assumptions:
+                        for a in clarification.assumptions:
+                            progress.log(f"     assumption: {a}", "info")
 
                 progress.mark_done("Query clarification")
                 end_step()
@@ -179,7 +179,10 @@ class ResearchOrchestrator:
             )
 
             if not sub_questions:
-                sub_questions = [SubQuestion(text=f"What are the key facts about {query}?")]
+                n = max(settings.min_sub_questions, 1)
+                sub_questions = [
+                    SubQuestion(text=f"What are the key facts about {query}?") for _ in range(n)
+                ]
             progress.add_tokens(300)
             progress.mark_done("Sub-question planning")
             progress.log(
@@ -190,10 +193,6 @@ class ResearchOrchestrator:
             sq_texts = "\n".join(f"{i}. {sq.text}" for i, sq in enumerate(sub_questions, 1))
             log_intermediate_step("Sub-Questions Planned",
                 f"Total: {len(sub_questions)}\n\n{sq_texts}")
-            print_step(
-                "Sub-Question Planning",
-                f"{len(sub_questions)} sub-question(s):\n{sq_texts}",
-            )
             log_json_event("sub_questions_planned", {
                 "count": len(sub_questions),
                 "questions": [sq.text for sq in sub_questions],
@@ -230,7 +229,6 @@ class ResearchOrchestrator:
                         progress.log(
                             f"✔ Sub-question done — {len(claims)} {label_text}", "done"
                         )
-                        logger.info(AgentLogger.extract("sources", len(claims)))
                     else:
                         progress.log("⚠ No results for this sub-question", "warn")
                     tracer.pop_level()
@@ -254,12 +252,6 @@ class ResearchOrchestrator:
             if not settings.disable_claims:
                 metrics.claims_extracted = len(all_claims)
                 progress.log(f"📊 Total claims collected: {len(all_claims)}", "data")
-                print_claims_summary(
-                    "All sub-questions combined",
-                    len(all_claims),
-                    len(all_urls),
-                    [c.text for c in all_claims[:5]],
-                )
                 log_json_event("claims_collected", {
                     "total": len(all_claims),
                     "unique_sources": len(all_urls),
@@ -287,7 +279,6 @@ class ResearchOrchestrator:
                 )
                 progress.mark_done("Deduplication", f"removed {removed}")
                 progress.log(f"   {before} → {after}  ({removed} duplicate(s) removed)", "data")
-                print_step("Deduplication", f"{before} → {after}  ({removed} removed)")
                 end_step()
 
             # ── 6. Contradiction detection (skipped when claims disabled) ──
@@ -324,17 +315,12 @@ class ResearchOrchestrator:
                         progress.log(f"   ⚡ {c.topic[:60]}", "warn")
                 else:
                     progress.log("   No contradictions found across sources", "data")
-                print_step(
-                    "Contradiction Detection",
-                    f"{len(contradictions)} contradiction(s) found"
-                    if contradictions
-                    else "No contradictions detected",
-                )
                 end_step()
 
             # ── 7. Report synthesis ──────────────────────────────
             log_agent_state("SYNTHESIZING", f"Generating report from {len(all_claims)} claims")
             begin_step("Report synthesis")
+            progress.clear_stream()
             progress.set_tool("LLM / SynthesisEngine")
             progress.set_action("Generating structured research report…")
             source_type = "snippets" if settings.disable_claims else "claims"
@@ -410,31 +396,17 @@ class ResearchOrchestrator:
                 )
                 progress.log("⚠ Report synthesis timed out or empty — using fallback", "warn")
 
-            source_label = "snippet(s)" if settings.disable_claims else "claim(s)"
-            print_step(
-                "Report Synthesis",
-                f"Generated {len(report.sections)} section(s) with "
-                f"{len(all_claims)} {source_label} from {len(report.references)} source(s)."
-                + (" (fallback)" if "fallback" in str(type(report)).lower() else ""),
-            )
-
             report.query = resolved_query
             report.generated_at = datetime.utcnow()
-            report.tool_calls_used = self._loop_guard.tool_call_count
+            report.web_search_calls = metrics.search_count
             progress.add_tokens(2000)
+            source_label = "snippet(s)" if settings.disable_claims else "claim(s)"
             progress.mark_done("Report synthesis", f"{len(all_claims)} {source_label}")
 
             total_dur = time.monotonic() - total_start
             progress.log(
                 AgentLogger.report(len(all_claims), len(report.references), total_dur),
                 "done",
-            )
-            logger.info(
-                AgentLogger.report(
-                    report.total_claims,
-                    len(report.references),
-                    total_dur,
-                )
             )
 
             log_agent_state("COMPLETE", f"Report generated in {total_dur:.1f}s")
@@ -452,6 +424,8 @@ class ResearchOrchestrator:
             return report
 
         finally:
+            progress.clear_stream()
+            self._llm.on_token = None
             progress.stop()
 
     async def close(self) -> None:
@@ -498,14 +472,14 @@ class ResearchOrchestrator:
             claims: list[ClaimChunk] = []
             for r in search_results:
                 snippet_text = r.snippet or r.title or ""
-                if len(snippet_text.strip()) < 10:
+                if len(snippet_text.strip()) < settings.fast_mode_min_snippet_length:
                     continue
                 claims.append(
                     ClaimChunk(
                         text=snippet_text.strip(),
                         source_url=r.url,
                         source_domain=extract_domain(r.url),
-                        domain_authority=0.5,
+                        domain_authority=settings.fast_mode_domain_authority,
                         extracted_at=now,
                         sub_question_id=sub_question.id,
                     )
@@ -542,7 +516,6 @@ class ResearchOrchestrator:
                 metrics.page_fetches += 1
                 progress.add_claims(len(extracted))
                 progress.log(AgentLogger.extract(short_url, len(extracted)), "done")
-                logger.info(AgentLogger.extract(url, len(extracted)))
             else:
                 progress.log(AgentLogger.extract(short_url), "data")
                 metrics.page_fetch_errors += 1
@@ -560,11 +533,5 @@ class ResearchOrchestrator:
         progress.log(
             f"   Sub-question total: {len(claims)} claim(s) from {len(top_urls)} URLs",
             "data",
-        )
-        print_claims_summary(
-            sub_question.text,
-            len(claims),
-            len(top_urls),
-            [c.text for c in claims[:5]],
         )
         return claims
