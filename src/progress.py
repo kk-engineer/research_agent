@@ -82,9 +82,9 @@ class ResearchProgress:
     def start(self) -> None:
         if self._use_live:
             self._live = Live(
-                self._render(),
                 console=self._console,
-                refresh_per_second=5,
+                refresh_per_second=10,
+                get_renderable=self._render,
             )
             self._live.start()
 
@@ -166,7 +166,7 @@ class ResearchProgress:
 
     def _refresh(self) -> None:
         if self._live:
-            self._live.update(self._render())
+            self._live.refresh()
 
     def _completed_count(self) -> int:
         return sum(1 for p in self._phases if p.status == _DONE)

@@ -133,7 +133,7 @@ class _BaseOpenAIClient(LLMClient):
         timeout = request_timeout or settings.llm_request_timeout
         start = time.monotonic()
 
-        use_stream = self.on_token is not None and response_model is None
+        use_stream = self.on_token is not None
 
         if use_stream:
             kwargs["stream"] = True
@@ -167,15 +167,20 @@ class _BaseOpenAIClient(LLMClient):
 
         if use_stream:
             content_parts: list[str] = []
+            last_chunk = None
             async for chunk in response:
+                last_chunk = chunk
                 delta = chunk.choices[0].delta if chunk.choices else None
                 token = (delta.content or "") if delta else ""
                 if token:
                     content_parts.append(token)
                     self.on_token(token)
             content = "".join(content_parts)
-            if hasattr(response, 'usage') and response.usage:
-                completion_tokens = response.usage.completion_tokens or 0
+            if last_chunk and hasattr(last_chunk, 'usage') and last_chunk.usage:
+                u = last_chunk.usage
+                prompt_tokens = u.prompt_tokens or 0
+                completion_tokens = u.completion_tokens or 0
+                total_tokens = u.total_tokens or 0
         else:
             content = response.choices[0].message.content or ""
             if hasattr(response, "usage") and response.usage:

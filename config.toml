@@ -22,7 +22,7 @@ model = "nomic-embed-text-v1.5"
 base_url = "http://localhost:8001/v1"
 
 [search]
-provider = "tavily"           # tavily | duckduckgo
+provider = "duckduckgo"           # tavily | duckduckgo
 max_results = 1
 top_urls_to_fetch = 2
 
