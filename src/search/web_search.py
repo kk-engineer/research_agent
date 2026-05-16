@@ -9,9 +9,9 @@ from datetime import datetime
 from typing import Any
 
 from src.config import settings
-from src.logger import AgentLogger
 from src.models import SearchResult
-from src.search_logger import log_search_start, log_search_end
+from src.monitoring.logger import AgentLogger
+from src.monitoring.search_logger import log_search_start, log_search_end
 
 logger = logging.getLogger(__name__)
 

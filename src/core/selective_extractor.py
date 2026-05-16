@@ -4,12 +4,12 @@ import logging
 from datetime import datetime
 
 from src.config import settings
-from src.llm_client import LLMClient
+from src.llm.llm_client import LLMClient
 from src.models import ClaimChunk, EvidenceItem, ExtractionResponse, SubQuestion
-from src.page_fetcher import fetch_pages_parallel
 from src.prompts import BATCH_RELEVANCE_SYSTEM_PROMPT
-from src.text_processor import extract_domain, extract_relevant_sentences, split_into_chunks
-from src.utils import with_timeout
+from src.utils.page_fetcher import fetch_pages_parallel
+from src.utils.text_processor import extract_domain, extract_relevant_sentences, split_into_chunks
+from src.utils.utils import with_timeout
 
 logger = logging.getLogger(__name__)
 

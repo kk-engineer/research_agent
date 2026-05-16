@@ -4,10 +4,10 @@ import logging
 from collections import defaultdict
 
 from src.config import settings
-from src.llm_client import LLMClient
+from src.llm.llm_client import LLMClient
 from src.models import ClaimChunk, ContradictionRecord
 from src.prompts import DETECT_SYSTEM_PROMPT
-from src.utils import extract_json_from_llm_response, safe_get, with_timeout
+from src.utils.utils import extract_json_from_llm_response, safe_get, with_timeout
 
 logger = logging.getLogger(__name__)
 

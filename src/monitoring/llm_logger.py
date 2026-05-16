@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import logging
 import time
 from typing import Optional
 
 from rich.panel import Panel
 from rich.syntax import Syntax
-from rich.table import Table
 from rich.text import Text
-from rich.console import Group
 from rich import box
 
 from src.config import settings
-from src.rich_console import console, Theme, syntax_block, make_panel, make_key_value_table
-from src.metrics import metrics, LLMCallRecord
-from src.tracing import tracer
+from src.monitoring.async_logger import get_async_logger
+from src.monitoring.metrics import metrics, LLMCallRecord
+from src.monitoring.tracing import tracer
+from src.ui import events as _events
+from src.ui.rich_console import console, Theme, make_panel, make_key_value_table
 
 
 def log_llm_call_start(
@@ -31,24 +30,32 @@ def log_llm_call_start(
 
     tracer.event(f"LLM call: {purpose_tag} ({model})", "llm")
 
-    show_full = settings.show_llm_prompts and logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+    show_full = settings.show_llm_prompts
 
-    if show_full:
-        meta = make_key_value_table(
-            [
-                ("Model", model),
-                ("Provider", provider),
-                ("Temperature", str(temperature)),
-                ("Max tokens", str(max_tokens or settings.llm_max_tokens)),
-                ("Purpose", purpose),
-            ],
-            key_style="bold yellow",
+    _events.event_bus.emit_kv(_events.EventType.LLM_CALL_STARTED, purpose=purpose, model=model)
+
+    meta = make_key_value_table(
+        [
+            ("Model", model),
+            ("Provider", provider),
+            ("Temperature", str(temperature)),
+            ("Max tokens", str(max_tokens or settings.llm_max_tokens)),
+            ("Purpose", purpose),
+        ],
+        key_style="bold yellow",
+    )
+
+    if not _events.tui_mode:
+        console.print(
+            make_panel(
+                meta,
+                title=f"🤖 LLM Call: {purpose_tag}",
+                border_style=Theme.PANEL_LLM,
+            )
         )
 
-        content_parts = [meta, Text("")]
-
-        if system_prompt:
-            content_parts.append(
+        if show_full and system_prompt:
+            console.print(
                 Panel(
                     Syntax(system_prompt, "markdown", word_wrap=True, theme="monokai", line_numbers=False),
                     title="[bold]System Prompt[/bold]",
@@ -57,8 +64,8 @@ def log_llm_call_start(
                 )
             )
 
-        if user_prompt:
-            content_parts.append(
+        if show_full and user_prompt:
+            console.print(
                 Panel(
                     Syntax(user_prompt, "markdown", word_wrap=True, theme="monokai", line_numbers=False),
                     title="[bold]User Prompt[/bold]",
@@ -66,19 +73,6 @@ def log_llm_call_start(
                     box=box.ROUNDED,
                 )
             )
-
-        console.print(
-            make_panel(
-                Group(*content_parts),
-                title=f"[bold {Theme.PANEL_LLM}]🤖 LLM Call: {purpose_tag}[/bold {Theme.PANEL_LLM}]",
-                border_style=Theme.PANEL_LLM,
-            )
-        )
-    else:
-        console.print(
-            f"  🤖 [bold {Theme.LLM_CALL}]LLM[/bold {Theme.LLM_CALL}] "
-            f"[{purpose_tag}]  {model}  temp={temperature}",
-        )
 
     return start
 
@@ -117,6 +111,24 @@ def log_llm_call_end(
 
     tracer.complete_event(f"LLM response: {purpose_tag}", "llm", elapsed)
 
+    _events.event_bus.emit_kv(
+        _events.EventType.LLM_CALL_COMPLETED,
+        purpose=purpose_tag,
+        tokens=total_tokens,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        latency=round(elapsed, 2),
+        success=success,
+    )
+
+    get_async_logger().emit("llm_call", {
+        "model": model,
+        "purpose": purpose_tag,
+        "duration": round(elapsed, 3),
+        "tokens": total_tokens,
+        "success": success,
+    })
+
     token_info = (
         f"[bold yellow]Tokens:[/bold yellow] {total_tokens:,}  "
         f"(in: {prompt_tokens:,}, out: {completion_tokens:,})"
@@ -125,57 +137,49 @@ def log_llm_call_end(
     time_info = f"[bold yellow]Time:[/bold yellow] {elapsed:.2f}s"
 
     if not success:
-        console.print(
-            make_panel(
-                Text(response_content or "LLM call failed", style=f"bold {Theme.ERROR}"),
-                title=(
-                    f"[bold {Theme.ERROR}]✘ LLM Error: {purpose_tag}[/bold {Theme.ERROR}]  "
-                    f"{time_info}"
-                ),
-                border_style=Theme.PANEL_ERROR,
+        if not _events.tui_mode:
+            console.print(
+                make_panel(
+                    Text(response_content or "LLM call failed", style=f"bold {Theme.ERROR}"),
+                    title=(
+                        f"[bold {Theme.ERROR}]✘ LLM Error: {purpose_tag}[/bold {Theme.ERROR}]  "
+                        f"{time_info}"
+                    ),
+                    border_style=Theme.PANEL_ERROR,
+                )
             )
-        )
         return
 
     show_full = settings.show_llm_prompts
 
-    if show_full:
-        content_parts = []
+    meta = Text.assemble(
+        (f"LLM Response: {purpose_tag}\n", "bold"),
+    )
+    if time_info:
+        meta.append(Text.from_markup(time_info + "\n"))
+    if token_info:
+        meta.append(Text.from_markup(token_info + "\n"))
+    if retry_count:
+        meta.append(Text(f"Retries: {retry_count}", style=Theme.WARNING))
 
-        if token_info:
-            content_parts.append(Text.from_markup(token_info))
-        if time_info:
-            content_parts.append(Text.from_markup(time_info))
-        if retry_count:
-            content_parts.append(Text(f"Retries: {retry_count}", style=Theme.WARNING))
+    if not _events.tui_mode:
+        console.print(
+            make_panel(
+                meta,
+                title=f"✔ LLM Response: {purpose_tag}",
+                border_style=Theme.PANEL_LLM,
+            )
+        )
 
-        if response_content:
-            content_parts.append(Text(""))
-            content_parts.append(
+        if show_full and response_content:
+            console.print(
                 Panel(
                     Syntax(response_content, "markdown", word_wrap=True, theme="monokai", line_numbers=False),
-                    title="[bold]Response[/bold]",
+                    title="[bold]Response Content[/bold]",
                     border_style="green",
                     box=box.ROUNDED,
                 )
             )
-        else:
-            content_parts.append(Text("(empty)", style="dim"))
-
-        console.print(
-            make_panel(
-                Group(*content_parts),
-                title=(
-                    f"[bold {Theme.PANEL_LLM}]LLM Response: {purpose_tag}[/bold {Theme.PANEL_LLM}]"
-                ),
-                border_style=Theme.PANEL_LLM,
-            )
-        )
-    else:
-        console.print(
-            f"  [green]✔[/green] LLM [{purpose_tag}]  {time_info}  "
-            f"{token_info}"
-        )
 
 
 def _short_purpose(purpose: str) -> str:

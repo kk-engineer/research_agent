@@ -11,14 +11,14 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.traceback import install as install_rich_tracebacks
-from rich.console import Group
 from rich import box
 
 from src.config import settings
-from src.rich_console import console, Theme, make_panel, make_label_value, syntax_block
-from src.tracing import tracer
-from src.metrics import metrics
-from src.telemetry import get_timings
+from src.monitoring.metrics import metrics
+from src.monitoring.telemetry import get_timings
+from src.monitoring.tracing import tracer
+from src.ui import events as _events
+from src.ui.rich_console import console, Theme, make_panel, make_label_value, syntax_block
 
 _initialised = False
 
@@ -197,23 +197,32 @@ def log_error(
     log = logging.getLogger(__name__)
     log.error("Error in %s: %s\n%s", step_name, error, tb)
 
-    content_parts = [
-        Text(f"Step: {step_name}", style=f"bold {Theme.ERROR}"),
-        Text(f"Error: {error}", style=Theme.ERROR),
-    ]
-    if request_payload:
-        payload_str = json.dumps(request_payload, indent=2, default=str)
-        content_parts.append(Text(""))
-        content_parts.append(syntax_block(payload_str, "json"))
-    content_parts.append(Text(""))
-    content_parts.append(Text(tb, style="dim"))
+    if not _events.tui_mode:
+        fatal_error_panel = make_panel(
+            Text(f"Error: {error}", style=Theme.ERROR),
+            title=f"[bold {Theme.ERROR}]✘ Fatal Error: {step_name}[/bold {Theme.ERROR}]",
+            border_style=Theme.PANEL_ERROR,
+        )
+        console.print(fatal_error_panel)
 
-    fatal_error_panel = make_panel(
-        Group(*content_parts),
-        title=f"[bold {Theme.ERROR}]✘ Fatal Error: {step_name}[/bold {Theme.ERROR}]",
-        border_style=Theme.PANEL_ERROR,
-    )
-    console.print(fatal_error_panel)
+        if request_payload:
+            payload_str = json.dumps(request_payload, indent=2, default=str)
+            console.print(
+                make_panel(
+                    syntax_block(payload_str, "json"),
+                    title="Request Payload",
+                    border_style=Theme.PANEL_ERROR,
+                )
+            )
+
+        if tb:
+            console.print(
+                make_panel(
+                    Text(tb, style="dim"),
+                    title="Traceback",
+                    border_style=Theme.PANEL_ERROR,
+                )
+            )
 
 
 def display_final_summary() -> None:

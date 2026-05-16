@@ -6,7 +6,7 @@ from typing import Optional
 import httpx
 
 from src.config import settings
-from src.text_processor import extract_meaningful_text
+from src.utils.text_processor import extract_meaningful_text
 
 _client: Optional[httpx.AsyncClient] = None
 

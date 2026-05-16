@@ -22,14 +22,14 @@ model = "nomic-embed-text-v1.5"
 base_url = "http://localhost:8001/v1"
 
 [search]
-provider = "duckduckgo"           # tavily | duckduckgo
-max_results = 1
-top_urls_to_fetch = 2
+provider = "tavily"           # tavily | duckduckgo
+max_results = 5
+top_urls_to_fetch = 3
 
 [claims]
 # When true, skip LLM-based claim extraction from web page content and
 # use search-result snippets directly as claims.  Faster but less accurate.
-disable = false
+disable = true
 
 # Domain authority to assign to search-result snippets in fast mode
 fast_mode_domain_authority = 0.5
@@ -166,7 +166,7 @@ file = "research_agent.log"
 #   trace   - full raw prompts/responses, everything
 verbosity = "debug"
 # Granular logging controls (override verbosity defaults)
-show_llm_prompts = true      # Show full LLM prompts/responses
+show_llm_prompts = false      # Show full LLM prompts/responses
 show_search_details = true   # Show search queries and results
 show_agent_state = true      # Show agent state transitions & thoughts
 show_intermediate_steps = true # Show all intermediate processing steps

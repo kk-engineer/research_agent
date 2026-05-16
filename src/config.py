@@ -429,25 +429,25 @@ class Settings:
     def show_llm_prompts(self) -> bool:
         if self.show_llm_prompts_raw is not None:
             return self.show_llm_prompts_raw
-        return self._vlevel >= 2
+        return True
 
     @property
     def show_search_details(self) -> bool:
         if self.show_search_details_raw is not None:
             return self.show_search_details_raw
-        return self._vlevel >= 2
+        return True
 
     @property
     def show_agent_state(self) -> bool:
         if self.show_agent_state_raw is not None:
             return self.show_agent_state_raw
-        return self._vlevel >= 1
+        return True
 
     @property
     def show_intermediate_steps(self) -> bool:
         if self.show_intermediate_steps_raw is not None:
             return self.show_intermediate_steps_raw
-        return self._vlevel >= 1
+        return True
 
     @property
     def verbosity_level(self) -> int:

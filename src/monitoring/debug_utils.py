@@ -18,14 +18,14 @@ def _should_print() -> bool:
 def print_llm_call(system_prompt: str, user_prompt: str, model: str) -> None:
     if not _should_print():
         return
-    from src.llm_logger import log_llm_call_start
+    from src.monitoring.llm_logger import log_llm_call_start
     log_llm_call_start(model, settings.llm_provider, "debug_utils", system_prompt, user_prompt)
 
 
 def print_llm_response(response: str, purpose: str, elapsed: float) -> None:
     if not _should_print():
         return
-    from src.llm_logger import log_llm_call_end
+    from src.monitoring.llm_logger import log_llm_call_end
     log_llm_call_end(
         purpose, time.time() - elapsed, response,
         success=True, model=settings.llm_model, provider=settings.llm_provider,

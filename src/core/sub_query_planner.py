@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from src.config import settings
-from src.llm_client import LLMClient
+from src.llm.llm_client import LLMClient
 from src.models import SubQuestion
 from src.prompts import DECOMPOSE_SYSTEM_PROMPT
 

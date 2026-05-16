@@ -8,26 +8,26 @@ from datetime import datetime
 from rich.console import Console
 from rich.prompt import Prompt
 
-from src.claim_store import ClaimStore, InMemoryClaimStore
 from src.config import settings
-from src.contradiction_detector import ContradictionDetector
-from src.debug_utils import print_debug_info
-from src.llm_client import get_llm_client, LLMClient
-from src.logger import AgentLogger, begin_step, end_step, log_json_event, log_agent_state, log_intermediate_step
-from src.loop_guard import LoopGuard
-from src.metrics import metrics
+from src.core.claim_store import ClaimStore, InMemoryClaimStore
+from src.core.contradiction_detector import ContradictionDetector
+from src.core.query_analyzer import QueryAnalyzer
+from src.core.result_scorer import ResultScorer
+from src.core.selective_extractor import SelectiveExtractor
+from src.core.sub_query_planner import SubQueryPlanner
+from src.core.synthesis_engine import SynthesisEngine
+from src.llm.llm_client import get_llm_client, LLMClient
 from src.models import ClaimChunk, ContradictionRecord, CoverageGap, Report, SubQuestion, SubQuestionStatus
-from src.progress import ResearchProgress
-from src.query_analyzer import QueryAnalyzer
-from src.result_scorer import ResultScorer
-from src.selective_extractor import SelectiveExtractor
-from src.sub_query_planner import SubQueryPlanner
-from src.synthesis_engine import SynthesisEngine
-from src.telemetry import timed_async
-from src.text_processor import extract_domain
-from src.tracing import tracer
-from src.utils import with_timeout
-from src.web_search import get_search_provider, WebSearchProvider
+from src.monitoring.debug_utils import print_debug_info
+from src.monitoring.logger import AgentLogger, begin_step, end_step, log_json_event, log_agent_state, log_intermediate_step
+from src.monitoring.metrics import metrics
+from src.monitoring.telemetry import timed_async
+from src.monitoring.tracing import tracer
+from src.search.web_search import get_search_provider, WebSearchProvider
+from src.ui.progress import ResearchProgress
+from src.utils.loop_guard import LoopGuard
+from src.utils.text_processor import extract_domain
+from src.utils.utils import with_timeout
 logger = logging.getLogger(__name__)
 
 T = settings.state_timeout
@@ -56,12 +56,13 @@ class ResearchOrchestrator:
         self._synthesizer = SynthesisEngine(self._llm)
 
     async def research(
-        self, query: str, skip_clarification: bool = False
+        self, query: str, skip_clarification: bool = False, progress=None
     ) -> Report:
         self._loop_guard.reset()
         self._claim_store.clear()
 
-        progress = ResearchProgress(self._console, use_live=True)
+        if progress is None:
+            progress = ResearchProgress(self._console, use_live=True)
         progress.start()
         self._llm.on_token = progress.add_stream_token
         progress.log("🧠 Research session started", "thought")
@@ -202,7 +203,7 @@ class ResearchOrchestrator:
             # ── 4. Sub-question research (parallel) ──────────────
             log_agent_state("RESEARCHING", f"Researching {len(sub_questions)} sub-questions in parallel")
             async def _run_sub_q(sq: SubQuestion) -> list[ClaimChunk]:
-                sq_label = f"Sub-Q: {sq.text}"
+                sq_label = f"Sub-Q: {sq.text[:80]}"
                 progress.phase(sq_label)
                 tracer.push_level()
                 try:
@@ -256,6 +257,21 @@ class ResearchOrchestrator:
                     "total": len(all_claims),
                     "unique_sources": len(all_urls),
                 })
+
+            if not all_claims and not settings.disable_claims:
+                progress.log("⚠ No claims collected — skipping dedup, contradiction check, and synthesis", "warn")
+                from src.models import Report as ReportModel, ReportSection as ReportSectionModel
+                report = ReportModel(
+                    title=f"Research: {query}",
+                    summary="No information was found for this query.",
+                    sections=[],
+                    references=[],
+                    coverage_gaps=[],
+                    research_questions=sub_questions,
+                    contradictions=[],
+                )
+                log_json_event("research_complete", {"total_claims": 0, "total_sources": 0})
+                return report
 
             # ── 5. Deduplication (skipped when claims disabled) ──
             if not settings.disable_claims:
@@ -317,7 +333,19 @@ class ResearchOrchestrator:
                     progress.log("   No contradictions found across sources", "data")
                 end_step()
 
-            # ── 7. Report synthesis ──────────────────────────────
+            # ── 7. Claims validation ──────────────────────────────
+            if not settings.disable_claims:
+                validation_claims = self._claim_store.get_all_claims()
+                validated_count = len(validation_claims)
+                total_contradictions = len(contradictions)
+                progress.log(f"   Claims validated: {validated_count} unique, {total_contradictions} conflict(s)", "done")
+                log_json_event("claims_validated", {
+                    "total_unique": validated_count,
+                    "contradictions": total_contradictions,
+                    "sources": len({c.source_url for c in validation_claims}),
+                })
+
+            # ── 8. Report synthesis ──────────────────────────────
             log_agent_state("SYNTHESIZING", f"Generating report from {len(all_claims)} claims")
             begin_step("Report synthesis")
             progress.clear_stream()
@@ -333,6 +361,12 @@ class ResearchOrchestrator:
             async with timed_async("report_synthesis"):
                 report = await self._synthesizer.synthesize(
                     sub_questions, contradictions
+                )
+            if report:
+                total_chars = sum(len(s.body) for s in report.sections)
+                progress.log(
+                    f"🤖 LLM response — {total_chars} chars across {len(report.sections)} sections",
+                    "llm_response",
                 )
             tracer.complete_event(
                 "Report synthesis complete", "synthesize",
@@ -442,10 +476,8 @@ class ResearchOrchestrator:
         progress.set_tool(f"Search / {settings.search_provider}")
         progress.set_action(f"Searching the web for '{query_preview[:80]}'…")
         progress.log(
-            AgentLogger.action(
-                settings.search_provider, f"query='{query_preview}'"
-            ),
-            "tool",
+            f"🔍 [{settings.search_provider}] {query_preview}",
+            "search_query",
         )
 
         async with timed_async(f"search_{sub_question.id}"):
@@ -457,15 +489,21 @@ class ResearchOrchestrator:
                 timeout_sec=T,
                 label=f"search_{sub_question.id}",
             )
-        if not search_results:
-            end_step("no results")
-            return []
         progress.add_tokens(len(query_preview) // 4)
         progress.add_sources(len(search_results))
-        progress.log(f"   Top results:", "data")
-        for i, r in enumerate(search_results[:3], 1):
-            progress.log(f"   [{i}] {r.title[:55]} — {r.url[:50]}", "data")
-        end_step()
+        progress.set_search_results(
+            unique_urls=len(search_results),
+            result_titles=[r.title for r in search_results[:10] if r.title],
+        )
+        progress.log(f"📄 Search results ({len(search_results)} found):", "search_result")
+        if search_results:
+            for i, r in enumerate(search_results[:5], 1):
+                progress.log(f"   [{i}] {r.title}", "search_result")
+            end_step()
+        else:
+            progress.log("   No results returned", "search_result")
+            end_step("no results")
+            return []
 
         if settings.disable_claims:
             now = datetime.utcnow()

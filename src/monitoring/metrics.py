@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich import box
 
-from src.rich_console import console, Theme
+from src.ui.rich_console import console, Theme
 
 
 _MODEL_PRICING: dict[str, tuple[float, float]] = {

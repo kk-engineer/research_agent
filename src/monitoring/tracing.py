@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich import box
 
-from src.rich_console import console, Theme, styled, syntax_block
+from src.ui.rich_console import console, Theme, styled, syntax_block
 
 
 @dataclass

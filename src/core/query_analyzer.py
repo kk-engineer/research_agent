@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.llm_client import LLMClient
+from src.llm.llm_client import LLMClient
 from src.models import ClarificationResponse, QueryAnalysis
 from src.prompts import ANALYZE_SYSTEM_PROMPT, CLARIFY_SYSTEM_PROMPT
 

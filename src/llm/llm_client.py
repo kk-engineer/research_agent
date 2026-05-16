@@ -7,14 +7,13 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, Optional
-
-from src.config import settings
-from src.llm_logger import log_llm_call_start, log_llm_call_end
-
 from openai import AsyncOpenAI
 
+
+
 from src.config import settings
-from src.utils import parse_json_safely, with_timeout
+from src.monitoring.llm_logger import log_llm_call_start, log_llm_call_end
+from src.utils.utils import parse_json_safely, with_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -367,7 +366,7 @@ class MockLLMClient(LLMClient):
 
 def _fallback_for_model(model: type) -> Any:
     from src import models as m
-    from src.sub_query_planner import DecompositionResponse
+    from src.core.sub_query_planner import DecompositionResponse
 
     registry = {
         m.QueryAnalysis: lambda: m.QueryAnalysis(

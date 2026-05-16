@@ -15,8 +15,10 @@ dependencies = [
     "tavily-cli>=0.1.2",
     "ddgs>=0.1.0",
     "rich>=13.0.0",
+    "textual>=0.52.0",
     "python-dotenv>=1.0.0",
     "pyperclip>=1.8.2",
+    "textual>=8.2.6",
 ]
 
 [project.scripts]

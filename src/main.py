@@ -20,12 +20,17 @@ from rich.table import Table
 from rich.text import Text
 
 from src.config import settings
-from src.llm_client import get_llm_client, LLMClient
-from src.logger import setup_logging, display_final_summary, log_error
-from src.metrics import metrics
-from src.orchestrator import ResearchOrchestrator
-from src.report_formatter import format_report
-from src.tracing import tracer
+from src.core.orchestrator import ResearchOrchestrator
+from src.llm.llm_client import get_llm_client, LLMClient
+from src.monitoring.async_logger import get_async_logger
+from src.monitoring.logger import setup_logging, display_final_summary, log_error
+from src.monitoring.metrics import metrics
+from src.monitoring.tracing import tracer
+from src.output.report_formatter import format_report
+from src.ui import events as _events
+from src.ui.research_tui import run_research_in_tui
+from src.ui.dashboard import ResearchDashboard
+from src.ui.progress import EventProgress
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -66,7 +71,6 @@ def _clickable_path(path: Path) -> str:
 def _copy_to_clipboard(text: str) -> bool:
     try:
         import pyperclip
-
         pyperclip.copy(text)
         return True
     except (ImportError, Exception) as exc:
@@ -129,7 +133,7 @@ def _banner() -> Panel:
     )
     line2 = Text.assemble(
         (
-            f"  Max sub-questions: {settings.min_sub_questions}–{settings.max_sub_questions}",
+            f"  Max sub-questions: {settings.min_sub_questions}\u2013{settings.max_sub_questions}",
             "white",
         ),
         ("  |  ", "dim"),
@@ -172,31 +176,43 @@ async def run_single(
     copy: bool = False,
     llm_client: Optional[LLMClient] = None,
 ) -> None:
-    query_panel = Panel(
-        Text.assemble(("Query\n", "bold"), (query, "white")),
-        title="[bold cyan]Research Agent[/bold cyan]",
-        border_style="cyan",
-    )
-    console.print(query_panel)
-
     tracer.start()
     metrics.start()
 
+    previous_tui = _events.tui_mode
+    _events.tui_mode = True
+
+    dashboard = ResearchDashboard(query)
+    dashboard.start()
+
+    event_progress = EventProgress()
+    event_progress._emit(_events.EventType.AGENT_STARTED, query=query)
+
     orchestrator = ResearchOrchestrator(llm=llm_client, console=console)
     try:
-        report = await orchestrator.research(query, skip_clarification=skip_clarification)
+        report = await orchestrator.research(
+            query,
+            skip_clarification=skip_clarification,
+            progress=event_progress,
+        )
     except asyncio.CancelledError:
+        dashboard.stop()
+        _events.tui_mode = previous_tui
         console.print("\n[yellow]Research cancelled[/yellow]")
         return
     except Exception as e:
+        dashboard.stop()
+        _events.tui_mode = previous_tui
         log_error("research", e)
         return
     finally:
         await orchestrator.close()
 
+    dashboard.stop()
+    _events.tui_mode = previous_tui
+
     report_doc = format_report(report)
     _display_report(report_doc)
-
     display_final_summary()
 
     saved_path: Optional[Path] = None
@@ -266,28 +282,43 @@ async def run_interactive(llm_client: Optional[LLMClient] = None) -> None:
         tracer.start()
         metrics.start()
 
+        previous_tui = _events.tui_mode
+        _events.tui_mode = True
+
+        dashboard = ResearchDashboard(query)
+        dashboard.start()
+
+        event_progress = EventProgress()
+        event_progress._emit(_events.EventType.AGENT_STARTED, query=query)
+
         orchestrator = ResearchOrchestrator(llm=llm_client, console=console)
         try:
-            report = await orchestrator.research(query)
+            report = await orchestrator.research(query, progress=event_progress)
         except asyncio.CancelledError:
-            console.print("[yellow]Research cancelled — returning to prompt[/yellow]")
+            dashboard.stop()
+            _events.tui_mode = previous_tui
+            console.print("[yellow]Research cancelled \u2014 returning to prompt[/yellow]")
             continue
         except Exception as e:
+            dashboard.stop()
+            _events.tui_mode = previous_tui
             log_error("research", e)
             continue
         finally:
             await orchestrator.close()
 
+        dashboard.stop()
+        _events.tui_mode = previous_tui
+
         report_doc = format_report(report)
         _display_report(report_doc)
-
         display_final_summary()
         _offer_report_actions(report_doc, query)
 
 
 async def main() -> None:
     parser = argparse.ArgumentParser(
-        description="AI Research Assistant Agent — autonomous multi-source research",
+        description="AI Research Assistant Agent \u2014 autonomous multi-source research",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Arguments:\n"
@@ -314,6 +345,8 @@ async def main() -> None:
             "  research_agent \"X\" --output report.md --skip-clarification\n"
             "  research_agent \"X\" --verbose\n"
             "  research_agent \"X\" --verbosity trace\n"
+            "  research_agent \"X\" --tui\n"
+            "  research_agent \"X\" --tui --show-prompts\n"
             "\n"
             "Environment variables (see .env):\n"
             "  TAVILY_API_KEY    Search API key (required for tavily)\n"
@@ -324,62 +357,25 @@ async def main() -> None:
             "\n"
         ),
     )
-    parser.add_argument(
-        "query",
-        type=str,
-        nargs="?",
-        help="Research query in natural language",
-    )
-    parser.add_argument(
-        "--interactive", "-i", action="store_true", help="Run in interactive mode"
-    )
-    parser.add_argument(
-        "--output",
-        "-o",
-        type=str,
-        default="",
-        help="Output file path for the report (markdown)",
-    )
-    parser.add_argument(
-        "--copy",
-        "-c",
-        action="store_true",
-        help="Copy report to clipboard automatically",
-    )
-    parser.add_argument(
-        "--no-save",
-        action="store_true",
-        help="Skip auto-saving report to file",
-    )
-    parser.add_argument(
-        "--skip-clarification",
-        action="store_true",
-        help="Skip asking clarifying questions",
-    )
-    parser.add_argument(
-        "--validate-config",
-        action="store_true",
-        help="Validate configuration and exit",
-    )
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Set verbosity to debug"
-    )
-    parser.add_argument(
-        "--verbose-debug",
-        action="store_true",
-        help="Set verbosity to trace (full prompt/response logging)",
-    )
-    parser.add_argument(
-        "--verbosity", "-V",
-        type=str,
-        choices=["minimal", "normal", "debug", "trace"],
-        default=None,
-        help="Set verbosity level (overrides config.toml)",
-    )
+    parser.add_argument("query", type=str, nargs="?", help="Research query in natural language")
+    parser.add_argument("--interactive", "-i", action="store_true", help="Run in interactive mode")
+    parser.add_argument("--output", "-o", type=str, default="", help="Output file path for the report (markdown)")
+    parser.add_argument("--copy", "-c", action="store_true", help="Copy report to clipboard automatically")
+    parser.add_argument("--no-save", action="store_true", help="Skip auto-saving report to file")
+    parser.add_argument("--skip-clarification", action="store_true", help="Skip asking clarifying questions")
+    parser.add_argument("--validate-config", action="store_true", help="Validate configuration and exit")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Set verbosity to debug")
+    parser.add_argument("--verbose-debug", action="store_true", help="Set verbosity to trace (full prompt/response logging)")
+    parser.add_argument("--tui", action="store_true", help="Launch Textual TUI dashboard")
+    parser.add_argument("--show-prompts", action="store_true", default=False,
+                        help="Show LLM prompts and responses in TUI (default: hidden)")
+    parser.add_argument("--verbosity", "-V", type=str,
+                        choices=["minimal", "normal", "debug", "trace"],
+                        default=None,
+                        help="Set verbosity level (overrides config.toml)")
 
     args = parser.parse_args()
 
-    # Map verbosity CLI args to settings
     if args.verbosity is not None:
         vmap = {"minimal": 0, "normal": 1, "debug": 2, "trace": 3}
         settings.verbosity_level = vmap[args.verbosity]
@@ -392,8 +388,8 @@ async def main() -> None:
         os.environ["LOG_LEVEL"] = "DEBUG"
 
     setup_logging()
-
     settings.validate()
+    get_async_logger().start()
 
     if args.validate_config:
         _validate_config()
@@ -418,11 +414,23 @@ async def main() -> None:
     except ConnectionError as e:
         logger.error("Model connectivity check failed: %s", e)
         console.print(f"[red]Error:[/red] {e}")
-        console.print(
-            "Make sure your LLM/embedding server is running "
-            "and the URLs in [bold]config.toml[/bold] are correct."
-        )
+        console.print("Make sure your LLM/embedding server is running and the URLs in [bold]config.toml[/bold] are correct.")
         sys.exit(1)
+
+    if args.tui:
+        if not args.query:
+            console.print("[red]Error: --tui requires a query.[/red]")
+            sys.exit(1)
+        _events.tui_mode = True
+        try:
+            report = await run_research_in_tui(args.query)
+        finally:
+            _events.tui_mode = False
+        if report:
+            report_doc = format_report(report)
+            _display_report(report_doc)
+            display_final_summary()
+        return
 
     console.print(_banner())
 
@@ -439,6 +447,7 @@ async def main() -> None:
                 llm_client=llm_client,
             )
     finally:
+        await get_async_logger().stop()
         await llm_client.close()
 
 

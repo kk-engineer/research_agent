@@ -7,7 +7,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager, contextmanager
 from typing import Any, AsyncIterator, Optional
 
-from src.rich_console import console
+from src.ui.rich_console import console
 
 
 _timings: dict[str, list[float]] = defaultdict(list)

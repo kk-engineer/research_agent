@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from src.config import settings
-from src.llm_client import LLMClient
+from src.llm.llm_client import LLMClient
 from src.models import (
     ClaimChunk,
     ComparisonTable,
@@ -17,7 +17,7 @@ from src.models import (
     SynthesisResponse,
 )
 from src.prompts import SYNTHESIS_SYSTEM_PROMPT
-from src.utils import with_timeout
+from src.utils.utils import with_timeout
 
 logger = logging.getLogger(__name__)
 
